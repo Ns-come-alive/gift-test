@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gift - POSレジ</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <div class="header-left"><h1 class="logo">Gift</h1></div>
+      <nav class="header-nav">
+        <button class="nav-btn active" data-view="order">注文</button>
+        <button class="nav-btn" data-view="history">履歴</button>
+        <button class="nav-btn" data-view="summary">売上</button>
+        <button class="nav-btn" data-view="cast">キャスト</button>
+      </nav>
+      <div class="header-right"><span class="clock" id="clock"></span></div>
+    </header>
+
+    <!-- 注文画面 -->
+    <main class="main-content" id="view-order">
+      <section class="menu-panel">
+        <div class="category-tabs" id="category-tabs"></div>
+        <div class="menu-grid" id="menu-grid"></div>
+      </section>
+      <aside class="cart-panel">
+        <div class="cart-header">
+          <div class="cart-header-top">
+            <h2>伝票</h2>
+            <button class="btn-clear" id="btn-clear-cart">全消去</button>
+          </div>
+          <div class="cart-header-info">
+            <div class="table-badge" id="table-badge">卓未選択</div>
+            <div class="cast-badge" id="cast-badge"></div>
+          </div>
+          <div class="cart-guest-row hidden" id="cart-guest-row">
+            <span class="guest-label">👥 人数:</span>
+            <button class="guest-btn" id="guest-minus">−</button>
+            <span class="guest-count" id="guest-count">0</span>
+            <button class="guest-btn" id="guest-plus">+</button>
+            <span class="guest-suffix">名</span>
+          </div>
+        </div>
+        <div class="cart-items" id="cart-items">
+          <div class="cart-empty">卓番号を選択してください</div>
+        </div>
+        <div class="cart-footer">
+          <div class="cart-summary">
+            <div class="summary-row"><span>小計</span><span id="subtotal">¥0</span></div>
+            <div class="summary-row"><span>TAX (10%)</span><span id="tax">¥0</span></div>
+            <div class="summary-row sc-row">
+              <label class="sc-toggle"><input type="checkbox" id="sc-checkbox" checked><span class="sc-slider"></span></label>
+              <span>SC (15%)</span><span id="sc">¥0</span>
+            </div>
+            <div class="summary-row card-fee-row hidden" id="card-fee-row"><span>カード手数料 (8%)</span><span id="card-fee">¥0</span></div>
+            <div class="summary-row total"><span>合計</span><span id="total">¥0</span></div>
+          </div>
+          <button class="btn-checkout" id="btn-checkout" disabled>会計へ進む</button>
+        </div>
+      </aside>
+    </main>
+
+    <!-- 履歴画面 -->
+    <main class="main-content hidden" id="view-history">
+      <section class="history-panel">
+        <h2 class="panel-title">注文履歴</h2>
+        <div class="history-list" id="history-list"><div class="empty-state">まだ注文履歴がありません</div></div>
+      </section>
+    </main>
+
+    <!-- キャスト管理画面 -->
+    <main class="main-content hidden" id="view-cast">
+      <section class="cast-panel">
+        <h2 class="panel-title">キャスト登録</h2>
+        <p class="cast-panel-desc">登録した名前は、リピート時の推し選択・キャストドリンク等の「誰が」選択に表示されます。</p>
+        <div class="cast-add-row">
+          <input type="text" id="cast-new-name" class="cast-add-input" placeholder="キャスト名を入力" autocomplete="off">
+          <button class="btn-cast-add" id="btn-cast-add">追加</button>
+        </div>
+        <div class="cast-list" id="cast-list"></div>
+      </section>
+    </main>
+
+    <!-- 売上画面 -->
+    <main class="main-content hidden" id="view-summary">
+      <section class="summary-panel">
+        <div class="summary-sub-tabs">
+          <button class="summary-sub-tab active" data-subtab="summary">📊 売上サマリー</button>
+          <button class="summary-sub-tab" data-subtab="daily-report">📋 日報</button>
+        </div>
+        <div id="subtab-summary">
+          <h2 class="panel-title">売上サマリー</h2>
+          <div class="summary-cards" id="summary-cards"></div>
+          <div class="summary-detail"><h3>カテゴリ別売上</h3><div class="category-sales" id="category-sales"></div></div>
+          <div class="summary-detail"><h3>人気メニュー TOP5</h3><div class="popular-items" id="popular-items"></div></div>
+          <div class="summary-detail"><h3>👑 キャスト別売上</h3><div class="cast-sales" id="cast-sales"></div></div>
+          <div class="summary-detail"><h3>📊 流入経路</h3><div class="source-stats" id="source-stats"></div></div>
+          <div class="summary-detail"><h3>📝 備考</h3><div class="remarks-stats" id="remarks-stats"></div></div>
+        </div>
+        <div id="subtab-daily-report" class="hidden">
+          <div class="report-header-row">
+            <h2 class="panel-title">日報</h2>
+            <div class="report-date-nav">
+              <button class="report-date-btn" id="report-prev-day">◀</button>
+              <span class="report-date-label" id="report-date-label"></span>
+              <button class="report-date-btn" id="report-next-day">▶</button>
+            </div>
+            <button class="btn-pdf-download" id="btn-pdf-download">📥 PDF出力</button>
+          </div>
+          <div id="daily-report-content"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 卓番号モーダル -->
+    <div class="modal-overlay hidden" id="modal-table">
+      <div class="modal modal-table">
+        <div class="modal-header">
+          <h2 id="modal-table-title">卓1</h2>
+          <button class="modal-close" id="btn-close-table">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="table-step0-resume" class="hidden">
+            <p class="modal-label">この卓に進行中の伝票があります</p>
+            <div class="table-type-btns">
+              <button class="table-type-btn" id="btn-resume-session">📋 伝票を開く</button>
+              <button class="table-type-btn" id="btn-new-session">🆕 新規チェックイン</button>
+            </div>
+          </div>
+          <div id="table-step1">
+            <p class="modal-label">お客様のタイプを選択</p>
+            <div class="table-type-btns">
+              <button class="table-type-btn" id="btn-type-new">🆕 新規</button>
+              <button class="table-type-btn" id="btn-type-repeat">🔄 リピート</button>
+            </div>
+          </div>
+          <div id="table-step2-new" class="hidden">
+            <p class="modal-label">どこから来ましたか？</p>
+            <div class="source-btns">
+              <button class="source-btn" data-source="Google">🔍 Google</button>
+              <button class="source-btn" data-source="ポケパラ">📱 ポケパラ</button>
+              <button class="source-btn" data-source="看板">🪧 看板</button>
+              <button class="source-btn" data-source="インスタ">📸 インスタ</button>
+              <button class="source-btn" data-source="Tiktok">🎵 Tiktok</button>
+              <button class="source-btn" data-source="キャッチ">🤝 キャッチ</button>
+              <button class="source-btn source-btn-other" data-source="その他">❓ その他</button>
+            </div>
+          </div>
+          <div id="table-step-catch" class="hidden">
+            <p class="modal-label">誰が連れてきましたか？（最大3名）</p>
+            <div class="cast-selected-chips" id="catch-selected-chips"></div>
+            <div class="cast-picker-list" id="catch-cast-list"></div>
+            <input type="text" id="catch-manual-input" class="modal-text-input" placeholder="または名前を手入力" autocomplete="off">
+            <div class="repeat-btns">
+              <button class="btn-confirm-cast" id="btn-catch-confirm">次へ（人数）</button>
+              <button class="btn-free-repeat" id="btn-catch-skip">スキップ</button>
+            </div>
+          </div>
+          <div id="table-step2-repeat" class="hidden">
+            <p class="modal-label">推しキャストを選択（最大2名）</p>
+            <div class="cast-selected-chips" id="cast-selected-chips"></div>
+            <div class="cast-picker-list" id="cast-picker-list"></div>
+            <input type="text" id="table-cast-input" class="modal-text-input" placeholder="または手入力で追加" autocomplete="off">
+            <div class="repeat-btns">
+              <button class="btn-confirm-cast" id="btn-confirm-cast">次へ（人数）</button>
+              <button class="btn-add-second-cast" id="btn-add-second-cast" type="button">＋ 推しキャスト追加（2人目）</button>
+              <button class="btn-free-repeat" id="btn-free-repeat">フリー（指名なし）</button>
+            </div>
+          </div>
+          <div id="table-step3-guests" class="hidden">
+            <p class="modal-label">人数を選択</p>
+            <div class="guest-select-btns" id="guest-select-btns"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 受取キャスト選択モーダル -->
+    <div class="modal-overlay hidden" id="modal-recipient">
+      <div class="modal modal-table">
+        <div class="modal-header">
+          <h2 id="recipient-modal-title">誰が？</h2>
+          <button class="modal-close" id="btn-close-recipient">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-label">受け取ったキャストを選択</p>
+          <div class="cast-picker-list" id="recipient-cast-list"></div>
+          <input type="text" id="recipient-manual" class="modal-text-input" placeholder="または名前を手入力" autocomplete="off">
+          <button class="btn-confirm-cast" id="btn-recipient-confirm">確定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 注文確認モーダル -->
+    <div class="modal-overlay hidden" id="modal-confirm-item">
+      <div class="modal modal-confirm">
+        <div class="modal-header">
+          <h2>注文確認</h2>
+          <button class="modal-close" id="btn-close-confirm">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="confirm-item-detail" id="confirm-item-detail"></div>
+          <div class="confirm-qty-row">
+            <button class="confirm-qty-btn" id="confirm-qty-minus">−</button>
+            <span class="confirm-qty-num" id="confirm-qty-num">1</span>
+            <button class="confirm-qty-btn" id="confirm-qty-plus">+</button>
+          </div>
+          <button class="btn-add-custom" id="btn-confirm-add">伝票に追加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 特別プランモーダル -->
+    <div class="modal-overlay hidden" id="modal-discount">
+      <div class="modal modal-custom">
+        <div class="modal-header">
+          <h2>🏷️ 特別プラン</h2>
+          <button class="modal-close" id="btn-close-discount">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="custom-field">
+            <label>プラン名（例: Tiktokキャンペーン）</label>
+            <input type="text" id="discount-name" placeholder="プラン名を入力" autocomplete="off">
+          </div>
+          <div class="custom-field">
+            <label>セット料金（税抜）</label>
+            <div class="custom-price-input">
+              <span class="yen-prefix">¥</span>
+              <input type="number" id="discount-price" placeholder="0" min="0" step="100">
+            </div>
+          </div>
+          <button class="btn-add-custom" id="btn-add-discount">プランを適用</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- その他フリー入力モーダル -->
+    <div class="modal-overlay hidden" id="modal-custom">
+      <div class="modal modal-custom">
+        <div class="modal-header">
+          <h2>📝 その他（フリー入力）</h2>
+          <button class="modal-close" id="btn-close-custom">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="custom-field"><label>商品名</label><input type="text" id="custom-name" placeholder="商品名を入力" autocomplete="off"></div>
+          <div class="custom-field"><label>金額（税抜）</label><div class="custom-price-input"><span class="yen-prefix">¥</span><input type="number" id="custom-price" placeholder="0" min="0" step="100"></div></div>
+          <button class="btn-add-custom" id="btn-add-custom">伝票に追加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 割引モーダル -->
+    <div class="modal-overlay hidden" id="modal-waribiki">
+      <div class="modal modal-custom">
+        <div class="modal-header">
+          <h2>🏷️ 割引</h2>
+          <button class="modal-close" id="btn-close-waribiki">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="custom-field">
+            <label>割引名（例: 誕生日割引）</label>
+            <input type="text" id="waribiki-name" placeholder="割引名を入力" autocomplete="off">
+          </div>
+          <div class="custom-field">
+            <label>割引金額</label>
+            <div class="custom-price-input">
+              <span class="yen-prefix">¥</span>
+              <input type="number" id="waribiki-price" placeholder="0" min="0" step="100">
+            </div>
+          </div>
+          <button class="btn-add-custom" id="btn-add-waribiki">割引を適用</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 会計モーダル -->
+    <div class="modal-overlay hidden" id="modal-checkout">
+      <div class="modal">
+        <div class="modal-header"><h2>お会計</h2><button class="modal-close" id="btn-close-checkout">&times;</button></div>
+        <div class="modal-body">
+          <div class="checkout-total"><span>合計金額</span><span class="checkout-amount" id="checkout-amount">¥0</span></div>
+          <div class="checkout-card-fee hidden" id="checkout-card-fee"><span>※ カード手数料 8% 込み</span></div>
+          <div class="payment-methods">
+            <button class="payment-btn active" data-method="cash">💴 現金</button>
+            <button class="payment-btn" data-method="card">💳 カード</button>
+            <button class="payment-btn" data-method="qr">📱 QR決済</button>
+          </div>
+          <div class="cash-input" id="cash-input-section">
+            <label>お預かり金額</label>
+            <div class="amount-display" id="received-display">¥0</div>
+            <div class="numpad">
+              <button class="num-btn" data-val="1">1</button><button class="num-btn" data-val="2">2</button><button class="num-btn" data-val="3">3</button>
+              <button class="num-btn" data-val="4">4</button><button class="num-btn" data-val="5">5</button><button class="num-btn" data-val="6">6</button>
+              <button class="num-btn" data-val="7">7</button><button class="num-btn" data-val="8">8</button><button class="num-btn" data-val="9">9</button>
+              <button class="num-btn" data-val="00">00</button><button class="num-btn" data-val="0">0</button><button class="num-btn del" data-val="del">⌫</button>
+            </div>
+            <div class="quick-amounts">
+              <button class="quick-btn" data-amount="5000">¥5,000</button><button class="quick-btn" data-amount="10000">¥10,000</button><button class="quick-btn" data-amount="30000">¥30,000</button>
+              <button class="quick-btn" data-amount="50000">¥50,000</button><button class="quick-btn" data-amount="100000">¥100,000</button><button class="quick-btn exact" id="btn-exact">ぴったり</button>
+            </div>
+            <div class="change-display" id="change-display"><span>おつり</span><span id="change-amount">¥0</span></div>
+          </div>
+          <button class="btn-confirm-payment" id="btn-confirm-payment" disabled>支払いを確定</button>
+        </div>
+      </div>
+    </div>
+
+    <button class="mobile-cart-btn" id="mobile-cart-btn"><span class="mobile-cart-icon">🧾</span><span class="mobile-cart-badge" id="mobile-cart-badge">0</span></button>
+    <div class="mobile-cart-overlay hidden" id="mobile-cart-overlay"></div>
+
+    <!-- レシートモーダル -->
+    <div class="modal-overlay hidden" id="modal-receipt">
+      <div class="modal modal-receipt">
+        <div class="modal-header"><h2>レシート</h2><button class="modal-close" id="btn-close-receipt">&times;</button></div>
+        <div class="modal-body">
+          <div class="receipt" id="receipt-content"></div>
+          <div class="receipt-actions"><button class="btn-print" id="btn-print">🖨️ 印刷</button><button class="btn-done" id="btn-done">完了</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
