@@ -78,8 +78,13 @@ function getCartCardFee() {
   const b = getCartSubtotal() + getCartSC() + getCartTax();
   return b > 0 ? Math.floor(b * 0.08) : 0;
 }
+function roundUpTo100(n) {
+  return n % 100 === 0 ? n : Math.ceil(n / 100) * 100;
+}
 function getCartTotal() {
-  return Math.max(0, getCartSubtotal() + getCartSC() + getCartTax() + getCartCardFee());
+  const raw = Math.max(0, getCartSubtotal() + getCartSC() + getCartTax() + getCartCardFee());
+  if (state.paymentMethod === "cash" && raw >= 10) return roundUpTo100(raw);
+  return raw;
 }
 
 function saveOrders() {
