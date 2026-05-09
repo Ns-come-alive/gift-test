@@ -5,12 +5,13 @@
 // Firebase Console → プロジェクト設定（⚙️）→ 全般 → 「マイアプリ」→ ウェブアプリ追加（</>）
 // → アプリ名を入力して登録 → 表示される firebaseConfig をコピー
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyBkPCCk0pqw4fJ2g_MkjV34PT5JCtsIado",
+  authDomain: "gift-pos-register.firebaseapp.com",
+  projectId: "gift-pos-register",
+  storageBucket: "gift-pos-register.firebasestorage.app",
+  messagingSenderId: "40894078133",
+  appId: "1:40894078133:web:cf3687587ba980f24a72fc",
+  measurementId: "G-J27WKTYQF2",
 };
 
 firebase.initializeApp(firebaseConfig);
