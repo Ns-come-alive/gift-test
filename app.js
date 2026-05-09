@@ -1,20 +1,18 @@
 // ============================
-// Constants & Storage
+// Constants & Storage (Firestore-backed)
 // ============================
-const CAST_LIST_KEY = "gift_cast_names";
-const SESSION_KEY = "gift_table_sessions_v2";
+let _castListCache = [];
+let _sessionsCache = {};
 
-function loadCastList() {
-  try { return JSON.parse(localStorage.getItem(CAST_LIST_KEY) || "[]"); } catch { return []; }
-}
+function loadCastList() { return _castListCache; }
 function saveCastList(arr) {
-  localStorage.setItem(CAST_LIST_KEY, JSON.stringify(arr));
+  _castListCache = arr;
+  DB.saveCastList(arr);
 }
-function loadSessions() {
-  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "{}"); } catch { return {}; }
-}
+function loadSessions() { return _sessionsCache; }
 function saveSessions(obj) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(obj));
+  _sessionsCache = obj;
+  DB.saveSessions(obj);
 }
 
 function genUkey() {
@@ -27,8 +25,8 @@ function genUkey() {
 const state = {
   cart: [],
   currentCategory: "table",
-  orders: JSON.parse(localStorage.getItem("gift_orders") || "[]"),
-  orderCounter: parseInt(localStorage.getItem("gift_order_counter") || "0"),
+  orders: [],
+  orderCounter: 0,
   receivedAmount: "",
   paymentMethod: "cash",
   scEnabled: true,
@@ -98,8 +96,7 @@ function getCartTotal() {
 }
 
 function saveOrders() {
-  localStorage.setItem("gift_orders", JSON.stringify(state.orders));
-  localStorage.setItem("gift_order_counter", state.orderCounter.toString());
+  DB.saveOrderCounter(state.orderCounter);
 }
 
 const methodLabel = { cash: "💴 現金", card: "💳 カード", qr: "📱 QR決済" };
@@ -1104,6 +1101,7 @@ document.getElementById("btn-confirm-payment").addEventListener("click", () => {
     timestamp: new Date().toISOString(),
   };
   state.orders.push(order);
+  DB.saveOrder(order);
   saveOrders();
   closeCheckout();
   showReceipt(order);
@@ -1229,6 +1227,7 @@ function renderHistory() {
       const id = parseInt(b.dataset.orderId, 10);
       if (confirm(`注文 #${id.toString().padStart(4, "0")} を削除しますか？`)) {
         state.orders = state.orders.filter((o) => o.id !== id);
+        DB.deleteOrder(id);
         saveOrders();
         renderHistory();
       }
@@ -1400,10 +1399,14 @@ function fmtReportDate(d) {
   return `R${d.getFullYear() - 2018}年 ${d.getMonth() + 1}月 ${d.getDate()}日`;
 }
 
-function loadExpenses() {
-  try { return JSON.parse(localStorage.getItem(EXPENSE_KEY) || "{}"); } catch { return {}; }
+let _expensesCache = {};
+let _dailyPayCache = {};
+
+function loadExpenses() { return _expensesCache; }
+function saveExpenses(obj) {
+  _expensesCache = obj;
+  DB.saveExpenses(obj);
 }
-function saveExpenses(obj) { localStorage.setItem(EXPENSE_KEY, JSON.stringify(obj)); }
 function getExpensesForDate(dateKey) {
   const all = loadExpenses();
   return all[dateKey] || [];
@@ -1414,10 +1417,11 @@ function setExpensesForDate(dateKey, arr) {
   saveExpenses(all);
 }
 
-function loadDailyPay() {
-  try { return JSON.parse(localStorage.getItem(DAILY_PAY_KEY) || "{}"); } catch { return {}; }
+function loadDailyPay() { return _dailyPayCache; }
+function saveDailyPay(obj) {
+  _dailyPayCache = obj;
+  DB.saveDailyPay(obj);
 }
-function saveDailyPay(obj) { localStorage.setItem(DAILY_PAY_KEY, JSON.stringify(obj)); }
 function getDailyPayForDate(dateKey) {
   const all = loadDailyPay();
   return all[dateKey] || { dailyPay: 0, tainyuSalary: 0 };
@@ -1845,9 +1849,47 @@ function updateMobileBadge() {
 }
 
 // ============================
-// Init
+// Init (Firestore)
 // ============================
-renderCategories();
-renderMenu();
-renderCart();
-updateTableBadge();
+async function boot() {
+  try {
+    const [orders, counter, castList, sessions, expenses, dailyPay] = await Promise.all([
+      DB.loadOrders(),
+      DB.loadOrderCounter(),
+      DB.loadCastList(),
+      DB.loadSessions(),
+      DB.loadExpenses(),
+      DB.loadDailyPay(),
+    ]);
+    state.orders = orders;
+    state.orderCounter = counter;
+    _castListCache = castList;
+    _sessionsCache = sessions;
+    _expensesCache = expenses;
+    _dailyPayCache = dailyPay;
+  } catch (e) {
+    console.warn("Firestore load failed, starting with empty state:", e);
+  }
+
+  renderCategories();
+  renderMenu();
+  renderCart();
+  updateTableBadge();
+
+  DB.onOrdersChange((orders) => {
+    state.orders = orders;
+    const maxId = orders.reduce((m, o) => Math.max(m, o.id || 0), 0);
+    if (maxId > state.orderCounter) state.orderCounter = maxId;
+  });
+
+  DB.onSessionsChange((sessions) => {
+    _sessionsCache = sessions;
+    if (state.currentCategory === "table") renderMenu();
+  });
+
+  DB.onCastListChange((list) => {
+    _castListCache = list;
+  });
+}
+
+boot();
