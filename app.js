@@ -73,18 +73,28 @@ function getCartTax() {
   const taxable = getTaxableSubtotal() + getCartSC();
   return taxable > 0 ? Math.floor(taxable * 0.1) : 0;
 }
+function getCartBeforeCard() {
+  return getCartSubtotal() + getCartSC() + getCartTax();
+}
 function getCartCardFee() {
   if (state.paymentMethod !== "card") return 0;
-  const b = getCartSubtotal() + getCartSC() + getCartTax();
-  return b > 0 ? Math.floor(b * 0.08) : 0;
+  const before = getCartBeforeCard();
+  if (before <= 0) return 0;
+  const totalWithCard = Math.floor(before * 1.08);
+  return totalWithCard - before;
 }
 function roundUpTo100(n) {
   return n % 100 === 0 ? n : Math.ceil(n / 100) * 100;
 }
 function getCartTotal() {
-  const raw = Math.max(0, getCartSubtotal() + getCartSC() + getCartTax() + getCartCardFee());
-  if (state.paymentMethod === "cash" && raw >= 10) return roundUpTo100(raw);
-  return raw;
+  let total;
+  if (state.paymentMethod === "card") {
+    total = Math.max(0, Math.floor(getCartBeforeCard() * 1.08));
+  } else {
+    total = Math.max(0, getCartBeforeCard());
+  }
+  if (state.paymentMethod === "cash" && total >= 10) return roundUpTo100(total);
+  return total;
 }
 
 function saveOrders() {
