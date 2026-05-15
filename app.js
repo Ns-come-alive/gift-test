@@ -40,6 +40,7 @@ const state = {
   castsArr: [],
   guestCount: 0,
   checkinTime: null,
+  tableMemo: "",
   pendingTableNumber: null,
   pendingType: null,
   pendingSource: null,
@@ -56,6 +57,12 @@ const fmt = (n) => (n < 0 ? "−¥" + Math.abs(n).toLocaleString() : "¥" + n.to
 const pz = (n) => n.toString().padStart(2, "0");
 const fmtTime = (d) => `${pz(d.getHours())}:${pz(d.getMinutes())}`;
 const fmtDT = (s) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${fmtTime(d)}`; };
+
+function getTableLabel(num) {
+  const t = MENU_DATA.tables.find((t) => t.num === num);
+  if (t) return t.type === "box" ? `Box ${t.label}` : t.label;
+  return num;
+}
 
 function getCartSubtotal() {
   return state.cart.reduce((s, i) => s + i.price * i.qty, 0);
@@ -99,7 +106,7 @@ function saveOrders() {
   DB.saveOrderCounter(state.orderCounter);
 }
 
-const methodLabel = { cash: "💴 現金", card: "💳 カード", qr: "📱 QR決済" };
+const methodLabel = { cash: "💴 現金", card: "💳 カード", qr: "📱 QR決済", urikake: "📝 売掛" };
 const getML = (m) => methodLabel[m] || m;
 
 function getBusinessDate(s) {
@@ -126,6 +133,7 @@ function snapshotSession() {
     castsArr: [...state.castsArr],
     guestCount: state.guestCount,
     checkinTime: state.checkinTime,
+    tableMemo: state.tableMemo,
     cart: state.cart.map((i) => ({ ...i })),
     scEnabled: state.scEnabled,
   };
@@ -140,6 +148,7 @@ function applySession(s) {
   state.castsArr = Array.isArray(s.castsArr) ? [...s.castsArr] : (s.cast ? s.cast.split("・") : []);
   state.guestCount = s.guestCount || 0;
   state.checkinTime = s.checkinTime || null;
+  state.tableMemo = s.tableMemo || "";
   state.cart = Array.isArray(s.cart)
     ? s.cart.map((i) => ({ ...i, ukey: i.ukey || genUkey() }))
     : [];
@@ -290,18 +299,14 @@ function renderMenu() {
 
   if (state.currentCategory === "table") {
     let h = "";
-    for (let i = 1; i <= 12; i++) {
-      const active = state.tableNumber === i;
+    MENU_DATA.tables.forEach((tbl) => {
+      const n = tbl.num;
+      const active = state.tableNumber === n;
       let sess = null;
       if (active && state.checkinTime) {
-        sess = {
-          checkinTime: state.checkinTime,
-          cast: state.cast,
-          customerType: state.customerType,
-          guestCount: state.guestCount,
-        };
+        sess = { checkinTime: state.checkinTime, cast: state.cast, customerType: state.customerType, guestCount: state.guestCount };
       } else if (!active) {
-        const s = loadSessionForTable(i);
+        const s = loadSessionForTable(n);
         if (s && s.checkinTime) sess = s;
       }
       let info = "";
@@ -312,15 +317,17 @@ function renderMenu() {
         else if (sess.customerType === "new") info += ` / 新規`;
         if (sess.guestCount > 0) info += ` / ${sess.guestCount}名`;
       }
+      const typeIcon = tbl.type === "box" ? "🛋️" : "🪑";
+      const typeLabel = tbl.type === "box" ? `Box ${tbl.label}` : tbl.label;
       const priceLabel = active ? "✓ 選択中" : sess ? "進行中" : "選択";
-      h += `<button class="menu-item table-btn ${active ? "table-active" : ""} ${sess && !active ? "table-has-session" : ""}" data-table="${i}">
-        <span class="emoji">🪑</span><span class="name">卓 ${i}</span><span class="price">${priceLabel}</span>
+      h += `<button class="menu-item table-btn ${active ? "table-active" : ""} ${sess && !active ? "table-has-session" : ""}" data-table="${n}">
+        <span class="emoji">${typeIcon}</span><span class="name">${typeLabel}</span><span class="price">${priceLabel}</span>
         ${info ? `<span class="table-info">${escapeHtml(info)}</span>` : ""}</button>`;
-    }
+    });
     c.innerHTML = h;
     c.querySelectorAll(".table-btn").forEach((b) => {
       b.addEventListener("click", () => {
-        const n = parseInt(b.dataset.table);
+        const n = b.dataset.table;
         if (state.tableNumber && state.tableNumber !== n) saveSessionForTable(state.tableNumber);
         state.pendingTableNumber = n;
         openTableModal(n);
@@ -331,16 +338,43 @@ function renderMenu() {
 
   if (state.currentCategory === "other") {
     const otherItems = MENU_DATA.items.filter((i) => i.category === "other");
-    let oh = otherItems
-      .map(
-        (item) =>
-          `<button class="menu-item" data-id="${item.id}"><span class="emoji">${item.emoji}</span><span class="name">${item.name}</span><span class="price">${fmt(item.price)}</span></button>`
-      )
-      .join("");
+    let oh = "";
+    otherItems.forEach((item) => {
+      if (item.isShotTracker) {
+        const castList = loadCastList();
+        if (castList.length > 0) {
+          castList.forEach((castName) => {
+            oh += `<button class="menu-item" data-shot-cast="${escapeAttr(castName)}"><span class="emoji">${item.emoji}</span><span class="name">キャストショット＋（カウント）<br>${escapeHtml(castName)}</span><span class="price">${fmt(item.price)}</span></button>`;
+          });
+        } else {
+          oh += `<button class="menu-item" data-id="${item.id}"><span class="emoji">${item.emoji}</span><span class="name">${item.name}</span><span class="price">${fmt(item.price)}</span></button>`;
+        }
+      } else {
+        oh += `<button class="menu-item" data-id="${item.id}"><span class="emoji">${item.emoji}</span><span class="name">${item.name}</span><span class="price">${fmt(item.price)}</span></button>`;
+      }
+    });
     oh += `<button class="menu-item menu-item-custom" id="btn-open-waribiki-other"><span class="emoji">🏷️</span><span class="name">割引</span><span class="price">金額指定</span></button>`;
     oh += `<button class="menu-item menu-item-custom" id="btn-open-custom"><span class="emoji">📝</span><span class="name">フリー入力</span><span class="price">自由金額</span></button>`;
     c.innerHTML = oh;
-    c.querySelectorAll(".menu-item:not(.menu-item-custom)").forEach((el) => {
+    c.querySelectorAll("[data-shot-cast]").forEach((el) => {
+      el.addEventListener("click", () => {
+        if (!guardTable()) return;
+        const castName = el.dataset.shotCast;
+        const shotItem = MENU_DATA.items.find((i) => i.id === 105);
+        if (!shotItem) return;
+        pushCartLine({
+          id: shotItem.id,
+          name: `キャストショット＋（カウント）【${castName}】`,
+          price: 0,
+          category: shotItem.category,
+          emoji: shotItem.emoji,
+          qty: 1,
+          isShotTracker: true,
+        });
+        renderCart();
+      });
+    });
+    c.querySelectorAll(".menu-item:not(.menu-item-custom):not([data-shot-cast])").forEach((el) => {
       if (el.dataset.id) el.addEventListener("click", () => { if (!guardTable()) return; openConfirmItem(parseInt(el.dataset.id)); });
     });
     document.getElementById("btn-open-custom").addEventListener("click", () => {
@@ -350,6 +384,17 @@ function renderMenu() {
     document.getElementById("btn-open-waribiki-other").addEventListener("click", () => {
       if (!guardTable()) return;
       openWaribikiModal();
+    });
+    return;
+  }
+
+  if (state.currentCategory === "gacha") {
+    let gh = `<p style="color:var(--gold-light);font-size:13px;font-weight:600;grid-column:1/-1;text-align:center;padding:8px;">🎯 ガチャガチャ＆ダーツ（SC/TAX免除）</p>`;
+    gh += `<button class="menu-item menu-item-custom" id="btn-open-gacha"><span class="emoji">🎯</span><span class="name">ガチャ＆ダーツ</span><span class="price">金額入力</span></button>`;
+    c.innerHTML = gh;
+    document.getElementById("btn-open-gacha").addEventListener("click", () => {
+      if (!guardTable()) return;
+      openGachaModal();
     });
     return;
   }
@@ -559,7 +604,8 @@ function showFreshTableModal() {
 }
 
 function openTableModal(n) {
-  document.getElementById("modal-table-title").textContent = `🪑 卓 ${n}`;
+  const label = getTableLabel(n);
+  document.getElementById("modal-table-title").textContent = `🪑 ${label}`;
   const existing = loadSessionForTable(n);
 
   hideAllTableSteps();
@@ -772,6 +818,7 @@ document.getElementById("btn-free-repeat").addEventListener("click", () => {
 function finishCheckin(guests) {
   state.tableNumber = state.pendingTableNumber;
   state.guestCount = guests;
+  state.tableMemo = "";
 
   if (state.pendingType === "new") {
     state.customerType = "new";
@@ -813,6 +860,34 @@ function finishCheckin(guests) {
   renderCategories();
   renderMenu();
 }
+
+// ============================
+// Gacha & Darts modal
+// ============================
+function openGachaModal() {
+  document.getElementById("modal-gacha").classList.remove("hidden");
+  document.getElementById("gacha-name").value = "";
+  document.getElementById("gacha-price").value = "";
+  document.getElementById("gacha-name").focus();
+  lockScroll();
+}
+document.getElementById("btn-close-gacha").addEventListener("click", () => {
+  document.getElementById("modal-gacha").classList.add("hidden");
+  unlockScroll();
+});
+document.getElementById("btn-add-gacha").addEventListener("click", () => {
+  const name = document.getElementById("gacha-name").value.trim() || "ガチャ＆ダーツ";
+  const price = parseInt(document.getElementById("gacha-price").value, 10) || 0;
+  if (price <= 0) {
+    alert("金額を入力してください");
+    return;
+  }
+  state.customIdCounter++;
+  pushCartLine({ id: state.customIdCounter, name, price, category: "gacha", emoji: "🎯", qty: 1, isCustom: true, isTaxFree: true, isGacha: true });
+  renderCart();
+  document.getElementById("modal-gacha").classList.add("hidden");
+  unlockScroll();
+});
 
 // ============================
 // Discount & Custom modals
@@ -907,6 +982,7 @@ function clearCart() {
   state.castsArr = [];
   state.guestCount = 0;
   state.checkinTime = null;
+  state.tableMemo = "";
   updateTableBadge();
   renderCart();
   renderMenu();
@@ -939,9 +1015,13 @@ function renderCart() {
       b.addEventListener("click", () => updateQtyByUkey(b.dataset.ukey, parseInt(b.dataset.delta, 10)));
     });
   }
+  const scAmount = getCartSC();
+  const taxAmount = getCartTax();
   document.getElementById("subtotal").textContent = fmt(getCartSubtotal());
-  document.getElementById("tax").textContent = fmt(getCartTax());
-  document.getElementById("sc").textContent = fmt(getCartSC());
+  document.getElementById("sc").textContent = fmt(scAmount);
+  document.getElementById("sc-detail").textContent = scAmount > 0 ? `(${fmt(getTaxableSubtotal())} × 15%)` : "";
+  document.getElementById("tax").textContent = fmt(taxAmount);
+  document.getElementById("tax-detail").textContent = taxAmount > 0 ? `(${fmt(getTaxableSubtotal() + scAmount)} × 10%)` : "";
   const cfr = document.getElementById("card-fee-row");
   if (state.paymentMethod === "card" && state.cart.length > 0) {
     cfr.classList.remove("hidden");
@@ -967,12 +1047,21 @@ document.getElementById("guest-plus").addEventListener("click", () => {
   renderCart();
 });
 
+// Memo
+document.getElementById("table-memo-input").addEventListener("input", (e) => {
+  state.tableMemo = e.target.value;
+  if (state.tableNumber && state.checkinTime) saveSessionForTable(state.tableNumber);
+});
+
 function updateTableBadge() {
   const tb = document.getElementById("table-badge");
   const cb = document.getElementById("cast-badge");
   const gr = document.getElementById("cart-guest-row");
+  const memoEl = document.getElementById("table-memo-input");
+  const memoRow = document.getElementById("cart-memo-row");
   if (state.tableNumber) {
-    tb.textContent = `🪑 卓${state.tableNumber}`;
+    const label = getTableLabel(state.tableNumber);
+    tb.textContent = `🪑 ${label}`;
     tb.classList.add("active");
     let info = state.customerType === "new" ? "🆕 新規" : "🔄 リピート";
     if (state.source) info += ` (${state.source})`;
@@ -985,12 +1074,16 @@ function updateTableBadge() {
     }
     cb.textContent = info;
     gr.classList.remove("hidden");
+    memoRow.classList.remove("hidden");
     document.getElementById("guest-count").textContent = state.guestCount;
+    memoEl.value = state.tableMemo || "";
   } else {
     tb.textContent = "卓未選択";
     tb.classList.remove("active");
     cb.textContent = "";
     gr.classList.add("hidden");
+    memoRow.classList.add("hidden");
+    memoEl.value = "";
   }
 }
 
@@ -1026,11 +1119,18 @@ function updatePaymentUI() {
   document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
   document.getElementById("checkout-card-fee").classList.toggle("hidden", state.paymentMethod !== "card");
   const cs = document.getElementById("cash-input-section");
+  const urikakeSection = document.getElementById("urikake-section");
   if (state.paymentMethod === "cash") {
     cs.classList.remove("hidden");
+    urikakeSection.classList.add("hidden");
     document.getElementById("btn-confirm-payment").disabled = !canPay();
+  } else if (state.paymentMethod === "urikake") {
+    cs.classList.add("hidden");
+    urikakeSection.classList.remove("hidden");
+    document.getElementById("btn-confirm-payment").disabled = false;
   } else {
     cs.classList.add("hidden");
+    urikakeSection.classList.add("hidden");
     document.getElementById("btn-confirm-payment").disabled = false;
   }
 }
@@ -1069,12 +1169,45 @@ function updateReceivedDisplay() {
   document.getElementById("btn-confirm-payment").disabled = !canPay();
 }
 function canPay() {
+  if (state.paymentMethod === "urikake") return true;
   return state.paymentMethod !== "cash" || (parseInt(state.receivedAmount, 10) || 0) >= getCartTotal();
 }
 
+// Urikake (売掛) toggle
+document.querySelectorAll('input[name="urikake-type"]').forEach((r) => {
+  r.addEventListener("change", () => {
+    const partial = document.getElementById("urikake-partial-section");
+    partial.classList.toggle("hidden", r.value !== "partial");
+  });
+});
+
 document.getElementById("btn-confirm-payment").addEventListener("click", () => {
   const total = getCartTotal();
-  const received = state.paymentMethod === "cash" ? parseInt(state.receivedAmount, 10) || 0 : total;
+  let received = total;
+  let change = 0;
+  let urikakeData = null;
+
+  if (state.paymentMethod === "cash") {
+    received = parseInt(state.receivedAmount, 10) || 0;
+    change = Math.max(0, received - total);
+  } else if (state.paymentMethod === "urikake") {
+    const custName = document.getElementById("urikake-customer-name").value.trim();
+    if (!custName) { alert("お客様名を入力してください"); return; }
+    const urikakeType = document.querySelector('input[name="urikake-type"]:checked')?.value || "full";
+    let depositAmount = 0;
+    let remainAmount = total;
+    if (urikakeType === "partial") {
+      depositAmount = parseInt(document.getElementById("urikake-deposit").value, 10) || 0;
+      remainAmount = total - depositAmount;
+      if (depositAmount <= 0) { alert("入金額を入力してください"); return; }
+    } else {
+      remainAmount = total;
+    }
+    urikakeData = { customerName: custName, type: urikakeType, deposit: depositAmount, remain: remainAmount };
+    received = depositAmount;
+    change = 0;
+  }
+
   state.orderCounter++;
   const order = {
     id: state.orderCounter,
@@ -1085,7 +1218,7 @@ document.getElementById("btn-confirm-payment").addEventListener("click", () => {
     cardFee: getCartCardFee(),
     total,
     received,
-    change: Math.max(0, received - total),
+    change,
     method: state.paymentMethod,
     scEnabled: state.scEnabled,
     tableNumber: state.tableNumber,
@@ -1099,6 +1232,8 @@ document.getElementById("btn-confirm-payment").addEventListener("click", () => {
     checkinTime: state.checkinTime,
     checkoutTime: new Date().toISOString(),
     timestamp: new Date().toISOString(),
+    tableMemo: state.tableMemo,
+    urikake: urikakeData,
   };
   state.orders.push(order);
   DB.saveOrder(order);
@@ -1117,7 +1252,8 @@ function showReceipt(order, fromHistory) {
   const itemsH = order.items.map((i) => `<div class="receipt-item"><span>${escapeHtml(i.name)} x${i.qty}</span><span>${fmt(i.price * i.qty)}</span></div>`).join("");
   const scH = order.scEnabled ? `<div class="receipt-item"><span>SC (15%)</span><span>${fmt(order.sc)}</span></div>` : "";
   const cfH = order.cardFee > 0 ? `<div class="receipt-item"><span>カード手数料 (8%)</span><span>${fmt(order.cardFee)}</span></div>` : "";
-  let infoH = `<div class="receipt-cast">🪑 卓${order.tableNumber} ｜ ${order.guestCount}名`;
+  const label = getTableLabel(order.tableNumber);
+  let infoH = `<div class="receipt-cast">🪑 ${escapeHtml(label)} ｜ ${order.guestCount}名`;
   if (order.customerType === "new") {
     infoH += ` ｜ 🆕 新規 (${order.source})`;
     const catches = order.catchNames || (order.catchName ? [order.catchName] : []);
@@ -1127,7 +1263,20 @@ function showReceipt(order, fromHistory) {
   const cin = order.checkinTime ? fmtDT(order.checkinTime) : "";
   const cout = order.checkoutTime ? fmtDT(order.checkoutTime) : "";
   if (cin) infoH += `<br>⏰ 入店 ${cin} → 退店 ${cout}`;
+  if (order.tableMemo) infoH += `<br>📝 ${escapeHtml(order.tableMemo)}`;
   infoH += `</div>`;
+
+  let urikakeH = "";
+  if (order.urikake) {
+    const u = order.urikake;
+    urikakeH = `<div class="receipt-item" style="font-weight:700;color:#c9a96e;"><span>📝 売掛：${escapeHtml(u.customerName)}</span></div>`;
+    if (u.type === "partial") {
+      urikakeH += `<div class="receipt-item"><span>入金額</span><span>${fmt(u.deposit)}</span></div>`;
+      urikakeH += `<div class="receipt-item"><span>残り</span><span>${fmt(u.remain)}</span></div>`;
+    } else {
+      urikakeH += `<div class="receipt-item"><span>全額売掛</span><span>${fmt(u.remain)}</span></div>`;
+    }
+  }
 
   document.getElementById("receipt-content").innerHTML = `
     <div class="receipt-header"><div class="shop-name">Gift</div><div class="shop-info">ご来店ありがとうございます</div></div>
@@ -1135,13 +1284,15 @@ function showReceipt(order, fromHistory) {
     <div class="receipt-items">${itemsH}</div>
     <div class="receipt-totals">
       <div class="receipt-item"><span>小計</span><span>${fmt(order.subtotal)}</span></div>
+      <div class="receipt-item"><span>SC (15%)</span><span>${fmt(order.sc)}</span></div>
       <div class="receipt-item"><span>TAX (10%)</span><span>${fmt(order.tax)}</span></div>
-      ${scH}${cfH}
+      ${cfH}
       <div class="receipt-item receipt-grand-total"><span>合計</span><span>${fmt(order.total)}</span></div>
     </div>
     <div class="receipt-payment">
       <div class="receipt-item"><span>${getML(order.method)}</span><span>${fmt(order.received)}</span></div>
       ${order.method === "cash" ? `<div class="receipt-item"><span>おつり</span><span>${fmt(order.change)}</span></div>` : ""}
+      ${urikakeH}
     </div>
     <div class="receipt-footer">No. #${order.id.toString().padStart(4, "0")}<br>${fmtDT(order.timestamp)}<br>またのご来店をお待ちしております</div>`;
   document.getElementById("modal-receipt").classList.remove("hidden");
@@ -1166,6 +1317,7 @@ function afterReceiptClose() {
   state.castsArr = [];
   state.guestCount = 0;
   state.checkinTime = null;
+  state.tableMemo = "";
   updateTableBadge();
   renderCart();
   renderMenu();
@@ -1190,11 +1342,13 @@ function renderHistory() {
   c.innerHTML = orders
     .map((o) => {
       const items = o.items.map((i) => `${i.name}×${i.qty}`).join("、");
+      const label = getTableLabel(o.tableNumber);
       let badges = "";
-      if (o.tableNumber) badges += `<span class="order-table-badge">🪑 卓${o.tableNumber}</span>`;
+      if (o.tableNumber) badges += `<span class="order-table-badge">🪑 ${escapeHtml(label)}</span>`;
       if (o.guestCount) badges += `<span class="order-source">👥 ${o.guestCount}名</span>`;
       if (o.cast) badges += `<span class="order-cast">👑 ${escapeHtml(o.cast)}</span>`;
       if (o.source) badges += `<span class="order-source">${escapeHtml(o.source)}</span>`;
+      if (o.urikake) badges += `<span class="order-source" style="color:var(--gold);">📝 売掛:${escapeHtml(o.urikake.customerName)}</span>`;
       const cin = o.checkinTime ? fmtDT(o.checkinTime) : "";
       const cout = o.checkoutTime ? fmtDT(o.checkoutTime) : "";
       const timeStr = cin && cout ? `⏰ 入店 ${cin} → 退店 ${cout}` : fmtDT(o.timestamp);
@@ -1301,11 +1455,13 @@ function renderSummary() {
       .join("");
   }
 
+  // Cast sales (exclude gacha items)
   const cs = {};
   todayOrders.forEach((o) => {
     if (o.cast) {
+      const castSubtotal = o.items.reduce((s, i) => s + (i.isGacha ? 0 : i.price * i.qty), 0);
       if (!cs[o.cast]) cs[o.cast] = { name: o.cast, subtotal: 0, count: 0 };
-      cs[o.cast].subtotal += o.subtotal || 0;
+      cs[o.cast].subtotal += castSubtotal;
       cs[o.cast].count++;
     }
   });
@@ -1355,10 +1511,10 @@ function renderSummary() {
   if (remarksList.length === 0) {
     remarksEl.innerHTML = '<div class="empty-state">備考なし</div>';
   } else {
-    remarksEl.innerHTML = '<table class="remarks-table">' +
+    remarksEl.innerHTML =
       remarksList.map(([n, cnt]) =>
         `<div class="category-sale-row"><span class="sale-label">🥃 ${escapeHtml(n)}</span><span class="sale-amount">${cnt}杯</span></div>`
-      ).join("") + '</table>';
+      ).join("");
   }
 }
 
@@ -1379,8 +1535,8 @@ document.querySelectorAll(".summary-sub-tab").forEach((tab) => {
 // ============================
 // Daily Report
 // ============================
-const EXPENSE_KEY = "gift_daily_expenses";
-const DAILY_PAY_KEY = "gift_daily_pay";
+let _expensesCache = {};
+let _dailyPayCache = {};
 
 let reportDate = getBusinessDateObj();
 
@@ -1398,9 +1554,6 @@ function reportDateKey() {
 function fmtReportDate(d) {
   return `R${d.getFullYear() - 2018}年 ${d.getMonth() + 1}月 ${d.getDate()}日`;
 }
-
-let _expensesCache = {};
-let _dailyPayCache = {};
 
 function loadExpenses() { return _expensesCache; }
 function saveExpenses(obj) {
@@ -1424,7 +1577,7 @@ function saveDailyPay(obj) {
 }
 function getDailyPayForDate(dateKey) {
   const all = loadDailyPay();
-  return all[dateKey] || { dailyPay: 0, tainyuSalary: 0 };
+  return all[dateKey] || { entries: [], tainyuName: "", tainyuSalary: 0 };
 }
 function setDailyPayForDate(dateKey, data) {
   const all = loadDailyPay();
@@ -1452,21 +1605,27 @@ function renderDailyReport() {
   const orders = getOrdersForReportDate();
   const expenses = getExpensesForDate(dateKey);
   const payData = getDailyPayForDate(dateKey);
+  const dailyPayEntries = payData.entries || [];
+  if (!payData.entries && payData.dailyPay) {
+    dailyPayEntries.push({ castName: "", amount: payData.dailyPay });
+  }
+  const tainyuName = payData.tainyuName || "";
+  const tainyuSalary = payData.tainyuSalary || 0;
   const el = document.getElementById("daily-report-content");
 
   const cashOrders = orders.filter((o) => o.method === "cash");
   const cardOrders = orders.filter((o) => o.method === "card");
   const qrOrders = orders.filter((o) => o.method === "qr");
+  const urikakeOrders = orders.filter((o) => o.method === "urikake");
   const cashTotal = cashOrders.reduce((s, o) => s + o.total, 0);
   const cardTotal = cardOrders.reduce((s, o) => s + o.total, 0);
   const qrTotal = qrOrders.reduce((s, o) => s + o.total, 0);
+  const urikakeTotal = urikakeOrders.reduce((s, o) => s + o.total, 0);
   const grandTotal = orders.reduce((s, o) => s + o.total, 0);
   const expenseTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const dailyPay = payData.dailyPay || 0;
-  const tainyuSalary = payData.tainyuSalary || 0;
-  const cashNet = cashTotal - expenseTotal - dailyPay - tainyuSalary;
+  const dailyPayTotal = dailyPayEntries.reduce((s, e) => s + (e.amount || 0), 0);
+  const cashNet = cashTotal - expenseTotal - dailyPayTotal - tainyuSalary;
 
-  // Customer rows (max 15)
   let custRows = "";
   for (let i = 0; i < 15; i++) {
     const o = orders[i];
@@ -1479,8 +1638,10 @@ function renderDailyReport() {
       const newBadge = isNew ? `<span class="new-badge">${o.source || "新規"}</span>` : "";
       const catches = o.catchNames || (o.catchName ? [o.catchName] : []);
       const catchBadge = catches.length ? `<span class="catch-badge">🤝${catches.map(n => escapeHtml(n)).join("・")}</span>` : "";
+      const label = getTableLabel(o.tableNumber);
       custRows += `<tr>
         <td class="num-cell">${i + 1}</td>
+        <td class="name-cell">${escapeHtml(label)}</td>
         <td class="num-cell">${guests}</td>
         <td>${cin}</td>
         <td>${cout}</td>
@@ -1488,26 +1649,30 @@ function renderDailyReport() {
         <td class="amount-cell">${fmt(o.total)}</td>
       </tr>`;
     } else {
-      custRows += `<tr><td class="num-cell">${i + 1}</td><td></td><td></td><td></td><td></td><td></td></tr>`;
+      custRows += `<tr><td class="num-cell">${i + 1}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
     }
   }
 
-  // Card detail rows
   let cardRows = "";
   cardOrders.forEach((o) => {
-    const orderNum = `#${o.id.toString().padStart(4, "0")}`;
-    cardRows += `<tr><td class="name-cell">${orderNum}</td><td class="amount-cell">${fmt(o.total)}</td></tr>`;
+    cardRows += `<tr><td class="name-cell">#${o.id.toString().padStart(4, "0")}</td><td class="amount-cell">${fmt(o.total)}</td></tr>`;
   });
   if (cardRows === "") cardRows = `<tr><td colspan="2" style="color:var(--text-muted);font-size:11px;">なし</td></tr>`;
 
-  // QR detail rows
   let qrRows = "";
   qrOrders.forEach((o) => {
-    const orderNum = `#${o.id.toString().padStart(4, "0")}`;
-    qrRows += `<tr><td class="name-cell">${orderNum}</td><td class="amount-cell">${fmt(o.total)}</td></tr>`;
+    qrRows += `<tr><td class="name-cell">#${o.id.toString().padStart(4, "0")}</td><td class="amount-cell">${fmt(o.total)}</td></tr>`;
   });
 
-  // Expense rows
+  // Urikake rows
+  let urikakeRows = "";
+  urikakeOrders.forEach((o) => {
+    const u = o.urikake;
+    if (!u) return;
+    const typeStr = u.type === "partial" ? `入金${fmt(u.deposit)} / 残${fmt(u.remain)}` : `全額 ${fmt(u.remain)}`;
+    urikakeRows += `<tr><td class="name-cell">#${o.id.toString().padStart(4, "0")}</td><td class="name-cell">${escapeHtml(u.customerName)}</td><td class="amount-cell">${fmt(o.total)}</td><td class="name-cell" style="font-size:11px;">${typeStr}</td></tr>`;
+  });
+
   let expenseRows = "";
   expenses.forEach((e, i) => {
     expenseRows += `<div class="expense-input-row" data-eidx="${i}">
@@ -1528,11 +1693,11 @@ function renderDailyReport() {
         castShotAgg[shotCast] = (castShotAgg[shotCast] || 0) + item.qty;
         return;
       }
-      const drinkMatch = name.match(/^(?:キャストドリンク|キャストショット)（(.+?)）$/);
+      const drinkMatch = name.match(/^(?:キャストドリンク|キャストショット|キャストショット＋)（(.+?)）$/);
       if (drinkMatch) {
         const castName = drinkMatch[1];
-        const key = name.startsWith("キャストショット") ? "shot" : "drink";
-        if (!castDrinkAgg[castName]) castDrinkAgg[castName] = { drink: 0, shot: 0 };
+        const key = name.startsWith("キャストショット＋") ? "shotPlus" : name.startsWith("キャストショット") ? "shot" : "drink";
+        if (!castDrinkAgg[castName]) castDrinkAgg[castName] = { drink: 0, shot: 0, shotPlus: 0 };
         castDrinkAgg[castName][key] += item.qty;
       }
     });
@@ -1541,11 +1706,11 @@ function renderDailyReport() {
   let castDrinkRows = "";
   const cdNames = Object.keys(castDrinkAgg).sort();
   if (cdNames.length === 0) {
-    castDrinkRows = `<tr><td colspan="3" style="color:var(--text-muted);font-size:11px;">なし</td></tr>`;
+    castDrinkRows = `<tr><td colspan="4" style="color:var(--text-muted);font-size:11px;">なし</td></tr>`;
   } else {
     cdNames.forEach((n) => {
       const d = castDrinkAgg[n];
-      castDrinkRows += `<tr><td class="name-cell">${escapeHtml(n)}</td><td class="num-cell">${d.drink}杯</td><td class="num-cell">${d.shot}杯</td></tr>`;
+      castDrinkRows += `<tr><td class="name-cell">${escapeHtml(n)}</td><td class="num-cell">${d.drink}杯</td><td class="num-cell">${d.shot}杯</td><td class="num-cell">${d.shotPlus}杯</td></tr>`;
     });
   }
 
@@ -1567,7 +1732,6 @@ function renderDailyReport() {
       `</tbody></table>`;
   }
 
-  // New customer source
   const newOrders = orders.filter((o) => o.customerType === "new");
   let sourceRows = "";
   if (newOrders.length === 0) {
@@ -1581,33 +1745,42 @@ function renderDailyReport() {
     });
   }
 
-  // Monthly total
   const monthKey = `${reportDate.getFullYear()}-${pz(reportDate.getMonth() + 1)}`;
   const monthOrders = state.orders.filter((o) => getBusinessMonth(o.timestamp) === monthKey);
   const monthTotal = monthOrders.reduce((s, o) => s + o.total, 0);
 
+  // Daily pay rows
+  const castList = loadCastList();
+  let dailyPayRows = "";
+  dailyPayEntries.forEach((entry, i) => {
+    const castOpts = castList.map((n) => `<option value="${escapeAttr(n)}" ${entry.castName === n ? "selected" : ""}>${escapeHtml(n)}</option>`).join("");
+    dailyPayRows += `<div class="expense-input-row" data-dpidx="${i}">
+      <select class="daily-pay-cast-select" data-field="castName"><option value="">キャスト選択</option>${castOpts}</select>
+      <input type="number" value="${entry.amount || ""}" data-field="amount" placeholder="金額" min="0">
+      <button class="btn-expense-del" data-dpidx="${i}">×</button>
+    </div>`;
+  });
+
   el.innerHTML = `
     <div class="report-grid">
       <div>
-        <!-- Customer table -->
         <div class="report-section">
           <h3>来店一覧</h3>
           <table class="report-table">
-            <thead><tr><th></th><th>客数</th><th>来店時間</th><th>退店時間</th><th>お客様名</th><th>会計金</th></tr></thead>
+            <thead><tr><th></th><th>卓</th><th>客数</th><th>来店</th><th>退店</th><th>お客様名</th><th>会計金</th></tr></thead>
             <tbody>${custRows}</tbody>
             <tfoot>
-              <tr class="row-total"><td colspan="5">計</td><td class="amount-cell">${fmt(grandTotal)}</td></tr>
-              <tr class="row-total"><td colspan="5">月間売上金</td><td class="amount-cell">${fmt(monthTotal)}</td></tr>
+              <tr class="row-total"><td colspan="6">計</td><td class="amount-cell">${fmt(grandTotal)}</td></tr>
+              <tr class="row-total"><td colspan="6">月間売上金</td><td class="amount-cell">${fmt(monthTotal)}</td></tr>
             </tfoot>
           </table>
         </div>
 
-        <!-- Cast drink/shot summary -->
         <div class="report-cast-grid">
           <div class="report-section">
             <h3>🍹 キャストドリンク/ショット</h3>
             <table class="report-table">
-              <thead><tr><th>キャスト名</th><th>ドリンク</th><th>ショット</th></tr></thead>
+              <thead><tr><th>キャスト名</th><th>ドリンク</th><th>ショット</th><th>ショット＋</th></tr></thead>
               <tbody>${castDrinkRows}</tbody>
             </table>
           </div>
@@ -1617,7 +1790,6 @@ function renderDailyReport() {
           </div>
         </div>
 
-        <!-- New customer sources -->
         <div class="report-section">
           <h3>🆕 新規流入経路</h3>
           <table class="report-table">
@@ -1628,7 +1800,6 @@ function renderDailyReport() {
       </div>
 
       <div>
-        <!-- Credit card -->
         <div class="report-section">
           <h3>💳 クレジットカード</h3>
           <table class="report-table">
@@ -1648,7 +1819,16 @@ function renderDailyReport() {
           </table>
         </div>` : ""}
 
-        <!-- Expenses -->
+        ${urikakeOrders.length > 0 ? `
+        <div class="report-section">
+          <h3>📝 売掛</h3>
+          <table class="report-table">
+            <thead><tr><th>伝票</th><th>お客様名</th><th>金額</th><th>詳細</th></tr></thead>
+            <tbody>${urikakeRows}</tbody>
+            <tfoot><tr class="row-total"><td colspan="2">売掛計</td><td class="amount-cell">${fmt(urikakeTotal)}</td><td></td></tr></tfoot>
+          </table>
+        </div>` : ""}
+
         <div class="report-section">
           <h3>💰 経費内訳</h3>
           <div class="expense-list" id="expense-list">${expenseRows}</div>
@@ -1660,34 +1840,42 @@ function renderDailyReport() {
           <div class="expense-total-row"><span>経費計</span><span id="expense-total-display">${fmt(expenseTotal)}</span></div>
         </div>
 
-        <!-- Daily pay -->
         <div class="report-section">
-          <h3>📤 日払い・体入</h3>
+          <h3>📤 日払い</h3>
+          <div class="expense-list" id="daily-pay-list">${dailyPayRows}</div>
+          <div class="expense-input-row">
+            <select id="new-daily-pay-cast"><option value="">キャスト選択</option>${castList.map((n) => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join("")}</select>
+            <input type="number" id="new-daily-pay-amount" placeholder="金額" min="0">
+            <button class="btn-expense-add" id="btn-add-daily-pay">＋</button>
+          </div>
+          <div class="expense-total-row"><span>日払い計</span><span>${fmt(dailyPayTotal)}</span></div>
+        </div>
+
+        <div class="report-section">
+          <h3>🏪 体入</h3>
           <div class="daily-pay-row">
-            <label>日払い</label>
-            <input type="number" id="report-daily-pay" value="${dailyPay || ""}" placeholder="0" min="0">
+            <label>名前</label>
+            <input type="text" id="report-tainyu-name" value="${escapeAttr(tainyuName)}" placeholder="名前入力">
           </div>
           <div class="daily-pay-row">
-            <label>体入給与</label>
+            <label>給与</label>
             <input type="number" id="report-tainyu-salary" value="${tainyuSalary || ""}" placeholder="0" min="0">
           </div>
         </div>
 
-        <!-- Cash summary -->
         <div class="report-section">
           <h3>💴 現金内訳</h3>
           <table class="report-table">
             <tbody>
               <tr><td class="row-label">現金売上</td><td class="amount-cell">${fmt(cashTotal)}</td></tr>
               <tr><td class="row-label">経費</td><td class="amount-cell">${fmt(expenseTotal)}</td></tr>
-              <tr><td class="row-label">日払い</td><td class="amount-cell">${fmt(dailyPay)}</td></tr>
+              <tr><td class="row-label">日払い</td><td class="amount-cell">${fmt(dailyPayTotal)}</td></tr>
               <tr><td class="row-label">体入給与</td><td class="amount-cell">${fmt(tainyuSalary)}</td></tr>
               <tr class="row-total"><td>現金計</td><td class="amount-cell">${fmt(cashNet)}</td></tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Grand summary -->
         <div class="report-section">
           <h3>📊 売上集計概要</h3>
           <table class="report-table">
@@ -1695,6 +1883,7 @@ function renderDailyReport() {
               <tr><td class="row-label">現金</td><td class="amount-cell">${fmt(cashTotal)}</td></tr>
               <tr><td class="row-label">クレジットカード</td><td class="amount-cell">${fmt(cardTotal)}</td></tr>
               ${qrTotal > 0 ? `<tr><td class="row-label">QR決済</td><td class="amount-cell">${fmt(qrTotal)}</td></tr>` : ""}
+              ${urikakeTotal > 0 ? `<tr><td class="row-label">売掛</td><td class="amount-cell">${fmt(urikakeTotal)}</td></tr>` : ""}
               <tr class="row-total"><td>総売上</td><td class="amount-cell">${fmt(grandTotal)}</td></tr>
             </tbody>
           </table>
@@ -1746,18 +1935,47 @@ function bindExpenseEvents() {
 
 function bindDailyPayEvents() {
   const dateKey = reportDateKey();
-  const dpEl = document.getElementById("report-daily-pay");
-  const tsEl = document.getElementById("report-tainyu-salary");
 
   const save = () => {
-    setDailyPayForDate(dateKey, {
-      dailyPay: parseInt(dpEl?.value, 10) || 0,
-      tainyuSalary: parseInt(tsEl?.value, 10) || 0,
+    const entries = [];
+    document.querySelectorAll("#daily-pay-list .expense-input-row").forEach((row) => {
+      const sel = row.querySelector("select");
+      const inp = row.querySelector("input[type=number]");
+      entries.push({ castName: sel?.value || "", amount: parseInt(inp?.value, 10) || 0 });
     });
+    const tainyuName = document.getElementById("report-tainyu-name")?.value.trim() || "";
+    const tainyuSalary = parseInt(document.getElementById("report-tainyu-salary")?.value, 10) || 0;
+    setDailyPayForDate(dateKey, { entries, tainyuName, tainyuSalary });
   };
 
-  dpEl?.addEventListener("change", save);
-  tsEl?.addEventListener("change", save);
+  document.getElementById("btn-add-daily-pay")?.addEventListener("click", () => {
+    const castName = document.getElementById("new-daily-pay-cast").value;
+    const amount = parseInt(document.getElementById("new-daily-pay-amount").value, 10) || 0;
+    if (!castName && amount <= 0) return;
+    const payData = getDailyPayForDate(dateKey);
+    const entries = payData.entries || [];
+    entries.push({ castName: castName || "", amount });
+    setDailyPayForDate(dateKey, { ...payData, entries });
+    renderDailyReport();
+  });
+
+  document.querySelectorAll("#daily-pay-list .btn-expense-del").forEach((b) => {
+    b.addEventListener("click", () => {
+      const idx = parseInt(b.dataset.dpidx, 10);
+      const payData = getDailyPayForDate(dateKey);
+      const entries = payData.entries || [];
+      entries.splice(idx, 1);
+      setDailyPayForDate(dateKey, { ...payData, entries });
+      renderDailyReport();
+    });
+  });
+
+  document.querySelectorAll("#daily-pay-list .expense-input-row select, #daily-pay-list .expense-input-row input").forEach((el) => {
+    el.addEventListener("change", save);
+  });
+
+  document.getElementById("report-tainyu-name")?.addEventListener("change", save);
+  document.getElementById("report-tainyu-salary")?.addEventListener("change", save);
 }
 
 // ============================
@@ -1801,14 +2019,15 @@ body { font-family: "Noto Sans JP", sans-serif; background: #fff; color: #000; p
 .catch-badge { display: inline-block; font-size: 9px; font-weight: 700; color: #2563eb; background: #dbeafe; padding: 1px 5px; border-radius: 50px; margin-left: 4px; }
 .expense-total-row { display: flex; justify-content: space-between; padding: 6px 8px; background: #f5f5f5; border-radius: 6px; font-size: 13px; font-weight: 700; color: #333; }
 .expense-input-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
-.expense-input-row input { padding: 4px 6px; border: 1px solid #bbb; border-radius: 4px; background: #fff; color: #000; font-size: 12px; }
-.expense-input-row input[type="text"] { flex: 1; }
+.expense-input-row input, .expense-input-row select { padding: 4px 6px; border: 1px solid #bbb; border-radius: 4px; background: #fff; color: #000; font-size: 12px; }
+.expense-input-row input[type="text"], .expense-input-row select { flex: 1; }
 .expense-input-row input[type="number"] { width: 100px; text-align: right; }
 .btn-expense-del, .btn-expense-add { display: none !important; }
-.expense-input-row:not([data-eidx]) { display: none !important; }
+.expense-input-row:not([data-eidx]):not([data-dpidx]) { display: none !important; }
 .daily-pay-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .daily-pay-row label { font-size: 12px; font-weight: 600; color: #333; min-width: 60px; }
 .daily-pay-row input { width: 120px; padding: 4px 6px; border: 1px solid #bbb; border-radius: 4px; background: #fff; color: #000; font-size: 12px; text-align: right; }
+.daily-pay-cast-select { padding: 4px 6px; border: 1px solid #bbb; border-radius: 4px; font-size: 12px; }
 .report-print-header { text-align: center; margin-bottom: 20px; }
 .report-print-header h1 { font-family: "Cormorant Garamond", serif; font-size: 28px; letter-spacing: 4px; margin-bottom: 4px; color: #000; }
 .report-print-header p { font-size: 16px; color: #555; }
@@ -1817,7 +2036,7 @@ body { font-family: "Noto Sans JP", sans-serif; background: #fff; color: #000; p
 </head><body>
 <div class="report-print-header"><h1>Gift</h1><p>日報 ─ ${escapeHtml(dateLabel)}</p></div>
 ${content.innerHTML}
-<script>document.fonts.ready.then(function(){ setTimeout(function(){ window.print(); }, 200); });</script>
+<script>document.fonts.ready.then(function(){ setTimeout(function(){ window.print(); }, 200); });<\/script>
 </body></html>`;
   printWin.document.write(html);
   printWin.document.close();
@@ -1889,6 +2108,7 @@ async function boot() {
 
   DB.onCastListChange((list) => {
     _castListCache = list;
+    if (state.currentCategory === "other") renderMenu();
   });
 }
 

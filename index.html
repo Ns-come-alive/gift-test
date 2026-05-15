@@ -45,6 +45,9 @@
             <button class="guest-btn" id="guest-plus">+</button>
             <span class="guest-suffix">名</span>
           </div>
+          <div class="cart-memo-row hidden" id="cart-memo-row">
+            <input type="text" id="table-memo-input" class="table-memo-input" placeholder="📝 メモ（任意）" autocomplete="off">
+          </div>
         </div>
         <div class="cart-items" id="cart-items">
           <div class="cart-empty">卓番号を選択してください</div>
@@ -52,11 +55,11 @@
         <div class="cart-footer">
           <div class="cart-summary">
             <div class="summary-row"><span>小計</span><span id="subtotal">¥0</span></div>
-            <div class="summary-row"><span>TAX (10%)</span><span id="tax">¥0</span></div>
             <div class="summary-row sc-row">
               <label class="sc-toggle"><input type="checkbox" id="sc-checkbox" checked><span class="sc-slider"></span></label>
-              <span>SC (15%)</span><span id="sc">¥0</span>
+              <span>SC (15%)</span><span class="sc-detail-text" id="sc-detail"></span><span id="sc">¥0</span>
             </div>
+            <div class="summary-row"><span>TAX (10%)</span><span class="sc-detail-text" id="tax-detail"></span><span id="tax">¥0</span></div>
             <div class="summary-row card-fee-row hidden" id="card-fee-row"><span>カード手数料 (8%)</span><span id="card-fee">¥0</span></div>
             <div class="summary-row total"><span>合計</span><span id="total">¥0</span></div>
           </div>
@@ -121,7 +124,7 @@
     <div class="modal-overlay hidden" id="modal-table">
       <div class="modal modal-table">
         <div class="modal-header">
-          <h2 id="modal-table-title">卓1</h2>
+          <h2 id="modal-table-title">卓</h2>
           <button class="modal-close" id="btn-close-table">&times;</button>
         </div>
         <div class="modal-body">
@@ -239,6 +242,31 @@
       </div>
     </div>
 
+    <!-- ガチャ＆ダーツモーダル -->
+    <div class="modal-overlay hidden" id="modal-gacha">
+      <div class="modal modal-custom">
+        <div class="modal-header">
+          <h2>🎯 ガチャ＆ダーツ</h2>
+          <button class="modal-close" id="btn-close-gacha">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:12px;color:var(--gold-light);margin-bottom:12px;">※ SC・消費税はかかりません</p>
+          <div class="custom-field">
+            <label>商品名</label>
+            <input type="text" id="gacha-name" placeholder="例: ガチャガチャ 3回" autocomplete="off">
+          </div>
+          <div class="custom-field">
+            <label>金額</label>
+            <div class="custom-price-input">
+              <span class="yen-prefix">¥</span>
+              <input type="number" id="gacha-price" placeholder="0" min="0" step="100">
+            </div>
+          </div>
+          <button class="btn-add-custom" id="btn-add-gacha">伝票に追加</button>
+        </div>
+      </div>
+    </div>
+
     <!-- その他フリー入力モーダル -->
     <div class="modal-overlay hidden" id="modal-custom">
       <div class="modal modal-custom">
@@ -288,7 +316,8 @@
           <div class="payment-methods">
             <button class="payment-btn active" data-method="cash">💴 現金</button>
             <button class="payment-btn" data-method="card">💳 カード</button>
-            <button class="payment-btn" data-method="qr">📱 QR決済</button>
+            <button class="payment-btn" data-method="qr">📱 QR</button>
+            <button class="payment-btn" data-method="urikake">📝 売掛</button>
           </div>
           <div class="cash-input" id="cash-input-section">
             <label>お預かり金額</label>
@@ -304,6 +333,30 @@
               <button class="quick-btn" data-amount="50000">¥50,000</button><button class="quick-btn" data-amount="100000">¥100,000</button><button class="quick-btn exact" id="btn-exact">ぴったり</button>
             </div>
             <div class="change-display" id="change-display"><span>おつり</span><span id="change-amount">¥0</span></div>
+          </div>
+          <div class="urikake-section hidden" id="urikake-section">
+            <div class="custom-field">
+              <label>お客様名</label>
+              <input type="text" id="urikake-customer-name" placeholder="名前を入力" autocomplete="off">
+            </div>
+            <div class="custom-field">
+              <label>売掛タイプ</label>
+              <div style="display:flex;gap:12px;margin-top:6px;">
+                <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);cursor:pointer;">
+                  <input type="radio" name="urikake-type" value="full" checked> 全額
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text);cursor:pointer;">
+                  <input type="radio" name="urikake-type" value="partial"> 分割
+                </label>
+              </div>
+            </div>
+            <div class="custom-field hidden" id="urikake-partial-section">
+              <label>入金額</label>
+              <div class="custom-price-input">
+                <span class="yen-prefix">¥</span>
+                <input type="number" id="urikake-deposit" placeholder="0" min="0" step="100">
+              </div>
+            </div>
           </div>
           <button class="btn-confirm-payment" id="btn-confirm-payment" disabled>支払いを確定</button>
         </div>

@@ -1232,6 +1232,66 @@ button:active {
   line-height: 1.3;
 }
 
+/* Memo row in cart */
+.cart-memo-row {
+  width: 100%;
+}
+
+.table-memo-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.table-memo-input:focus {
+  border-color: var(--gold-dark);
+  box-shadow: 0 0 0 2px var(--gold-glow);
+}
+
+.table-memo-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* SC/TAX detail text */
+.sc-detail-text {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex: 1;
+  text-align: right;
+  padding-right: 6px;
+}
+
+/* Urikake section */
+.urikake-section {
+  margin-bottom: 14px;
+}
+
+/* Daily pay cast select */
+.daily-pay-cast-select {
+  flex: 1;
+  padding: 10px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  min-height: 44px;
+  -webkit-appearance: none;
+}
+
+.daily-pay-cast-select:focus {
+  border-color: var(--gold-dark);
+  box-shadow: 0 0 0 2px var(--gold-glow);
+}
+
 /* Guest row in cart */
 .cart-guest-row {
   display: flex;

@@ -10,7 +10,23 @@ const MENU_DATA = {
     { id: "wine", name: "ワイン", emoji: "🍷" },
     { id: "food", name: "フード", emoji: "🍫" },
     { id: "other", name: "その他", emoji: "📝" },
+    { id: "gacha", name: "ガチャ＆ダーツ", emoji: "🎯" },
     { id: "all", name: "すべて", emoji: "✨" },
+  ],
+  tables: [
+    { num: "C1", label: "C1", type: "counter" },
+    { num: "C2", label: "C2", type: "counter" },
+    { num: "C3", label: "C3", type: "counter" },
+    { num: "C4", label: "C4", type: "counter" },
+    { num: "C5", label: "C5", type: "counter" },
+    { num: "C6", label: "C6", type: "counter" },
+    { num: "C7", label: "C7", type: "counter" },
+    { num: "C8", label: "C8", type: "counter" },
+    { num: "C9", label: "C9", type: "counter" },
+    { num: "C10", label: "C10", type: "counter" },
+    { num: "B1", label: "B1", type: "box" },
+    { num: "B2", label: "B2", type: "box" },
+    { num: "B3", label: "B3", type: "box" },
   ],
   items: [
     // ===== システム =====
@@ -23,6 +39,9 @@ const MENU_DATA = {
     { id: 7, name: "場内指名", price: 1000, category: "system", emoji: "💫" },
     { id: 8, name: "同伴", price: 2000, category: "system", emoji: "🤝" },
     { id: 9, name: "新規特別プラン", price: 1000, category: "system", emoji: "🌟", isTaxFree: true },
+    { id: 110, name: "飲み放題（ビール・炭酸）", price: 1000, category: "system", emoji: "🍺" },
+    { id: 111, name: "キャッチ（平日）", price: 2000, category: "system", emoji: "🤝", isTaxFree: true },
+    { id: 112, name: "キャッチ（金土祝前）", price: 3000, category: "system", emoji: "🤝", isTaxFree: true },
 
     // ===== ショット =====
     { id: 10, name: "イエガー", price: 1500, category: "shot", emoji: "🥃" },
@@ -38,6 +57,7 @@ const MENU_DATA = {
     { id: 21, name: "キャストショット", price: 1500, category: "castdrink", emoji: "🥃", requiresRecipient: true },
     { id: 22, name: "キャスト割ピッチャー（+500）", price: 500, category: "castdrink", emoji: "🫗" },
     { id: 23, name: "キャスト割ピッチャー（+1000）", price: 1000, category: "castdrink", emoji: "🫗" },
+    { id: 24, name: "キャストショット＋", price: 2000, category: "castdrink", emoji: "🥃", requiresRecipient: true },
 
     // ===== ボトル =====
     { id: 30, name: "チャミスル", price: 5000, category: "bottle", emoji: "🍶" },
@@ -96,5 +116,8 @@ const MENU_DATA = {
     // ===== その他 =====
     { id: 103, name: "瓶コーラ", price: 1000, category: "other", emoji: "🥤" },
     { id: 105, name: "キャストショット＋（カウント）", price: 0, category: "other", emoji: "📊", isShotTracker: true },
+
+    // ===== ガチャガチャ＆ダーツ =====
+    // isTaxFree: SC/TAX免除, isGacha: キャスト小計に加算しないフラグ
   ],
 };
