@@ -511,38 +511,7 @@ document.getElementById("btn-confirm-add").addEventListener("click", () => {
 // ============================
 // Recipient modal
 // ============================
-function openRecipientModal() {
-  const item = state.pendingAddItem;
-  document.getElementById("recipient-modal-title").textContent = item ? `${item.name} — 誰が？` : "誰が？";
-  document.getElementById("recipient-manual").value = "";
-  const list = loadCastList();
-  const el = document.getElementById("recipient-cast-list");
-  if (list.length === 0) {
-    el.innerHTML = '<p class="modal-hint">キャストタブで名前を登録するとここに表示されます</p>';
-  } else {
-    el.innerHTML = list.map((n) => `<button type="button" class="cast-pick-btn" data-name="${escapeAttr(n)}">${escapeHtml(n)}</button>`).join("");
-    el.querySelectorAll(".cast-pick-btn").forEach((b) => {
-      b.addEventListener("click", () => {
-        document.getElementById("recipient-manual").value = b.dataset.name;
-      });
-    });
-  }
-  document.getElementById("modal-recipient").classList.remove("hidden");
-  lockScroll();
-}
-
-document.getElementById("btn-close-recipient").addEventListener("click", () => {
-  document.getElementById("modal-recipient").classList.add("hidden");
-  unlockScroll();
-  state.pendingAddItem = null;
-});
-
-document.getElementById("btn-recipient-confirm").addEventListener("click", () => {
-  const name = document.getElementById("recipient-manual").value.trim();
-  if (!name) {
-    alert("キャスト名を選択または入力してください");
-    return;
-  }
+function addRecipientToCart(name) {
   const item = state.pendingAddItem;
   const qty = state.pendingAddQty;
   if (!item) return;
@@ -573,6 +542,41 @@ document.getElementById("btn-recipient-confirm").addEventListener("click", () =>
   unlockScroll();
   state.pendingAddItem = null;
   renderCart();
+}
+
+function openRecipientModal() {
+  const item = state.pendingAddItem;
+  document.getElementById("recipient-modal-title").textContent = item ? `${item.name} — 誰が？` : "誰が？";
+  document.getElementById("recipient-manual").value = "";
+  const list = loadCastList();
+  const el = document.getElementById("recipient-cast-list");
+  if (list.length === 0) {
+    el.innerHTML = '<p class="modal-hint">キャストタブで名前を登録するとここに表示されます</p>';
+  } else {
+    el.innerHTML = list.map((n) => `<button type="button" class="cast-pick-btn recipient-pick" data-name="${escapeAttr(n)}">${escapeHtml(n)}</button>`).join("");
+    el.querySelectorAll(".recipient-pick").forEach((b) => {
+      b.addEventListener("click", () => {
+        addRecipientToCart(b.dataset.name);
+      });
+    });
+  }
+  document.getElementById("modal-recipient").classList.remove("hidden");
+  lockScroll();
+}
+
+document.getElementById("btn-close-recipient").addEventListener("click", () => {
+  document.getElementById("modal-recipient").classList.add("hidden");
+  unlockScroll();
+  state.pendingAddItem = null;
+});
+
+document.getElementById("btn-recipient-confirm").addEventListener("click", () => {
+  const name = document.getElementById("recipient-manual").value.trim();
+  if (!name) {
+    alert("キャスト名を選択または入力してください");
+    return;
+  }
+  addRecipientToCart(name);
 });
 
 // ============================

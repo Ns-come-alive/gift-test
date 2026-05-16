@@ -55,9 +55,9 @@ const MENU_DATA = {
     // ===== キャストドリンク =====
     { id: 20, name: "キャストドリンク", price: 1000, category: "castdrink", emoji: "🍹", requiresRecipient: true },
     { id: 21, name: "キャストショット", price: 1500, category: "castdrink", emoji: "🥃", requiresRecipient: true },
+    { id: 24, name: "キャストショット＋", price: 2000, category: "castdrink", emoji: "🥃", requiresRecipient: true },
     { id: 22, name: "キャスト割ピッチャー（+500）", price: 500, category: "castdrink", emoji: "🫗" },
     { id: 23, name: "キャスト割ピッチャー（+1000）", price: 1000, category: "castdrink", emoji: "🫗" },
-    { id: 24, name: "キャストショット＋", price: 2000, category: "castdrink", emoji: "🥃", requiresRecipient: true },
 
     // ===== ボトル =====
     { id: 30, name: "チャミスル", price: 5000, category: "bottle", emoji: "🍶" },
