@@ -183,6 +183,23 @@
       </div>
     </div>
 
+    <!-- 新規確認モーダル -->
+    <div class="modal-overlay hidden" id="modal-confirm-new">
+      <div class="modal modal-confirm">
+        <div class="modal-header">
+          <h2>⚠️ 確認</h2>
+          <button class="modal-close" id="btn-close-confirm-new">&times;</button>
+        </div>
+        <div class="modal-body" style="text-align:center;">
+          <p style="font-size:16px;font-weight:700;color:var(--danger);margin-bottom:20px;line-height:1.6;">新規を押すと卓のデータ消えます、<br>本当に良いですか？</p>
+          <div style="display:flex;gap:12px;">
+            <button class="btn-free-repeat" id="btn-confirm-new-cancel" style="flex:1;">キャンセル</button>
+            <button class="btn-confirm-cast" id="btn-confirm-new-ok" style="flex:1;background:linear-gradient(135deg,#dc2626,#ef4444);">新規にする</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 受取キャスト選択モーダル -->
     <div class="modal-overlay hidden" id="modal-recipient">
       <div class="modal modal-table">
@@ -263,6 +280,31 @@
             </div>
           </div>
           <button class="btn-add-custom" id="btn-add-gacha">伝票に追加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- オリシャン登録/管理モーダル -->
+    <div class="modal-overlay hidden" id="modal-orig-bottle">
+      <div class="modal modal-custom">
+        <div class="modal-header">
+          <h2>🎂 オリシャン登録/管理</h2>
+          <button class="modal-close" id="btn-close-orig-bottle">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="orig-bottle-list" id="orig-bottle-list"></div>
+          <div class="custom-field">
+            <label>シャンパン名（例: Aちゃんバースデー）</label>
+            <input type="text" id="orig-bottle-name" placeholder="名前を入力" autocomplete="off">
+          </div>
+          <div class="custom-field">
+            <label>金額</label>
+            <div class="custom-price-input">
+              <span class="yen-prefix">¥</span>
+              <input type="number" id="orig-bottle-price" placeholder="0" min="0" step="1000">
+            </div>
+          </div>
+          <button class="btn-add-custom" id="btn-add-orig-bottle">登録</button>
         </div>
       </div>
     </div>

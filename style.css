@@ -1949,6 +1949,10 @@ button:active {
   display: none;
 }
 
+#modal-confirm-new {
+  z-index: 110;
+}
+
 .mobile-cart-overlay {
   position: fixed;
   inset: 0;

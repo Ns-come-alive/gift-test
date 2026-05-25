@@ -3,6 +3,7 @@
 // ============================
 let _castListCache = [];
 let _sessionsCache = {};
+let _originalBottlesCache = [];
 
 function loadCastList() { return _castListCache; }
 function saveCastList(arr) {
@@ -13,6 +14,11 @@ function loadSessions() { return _sessionsCache; }
 function saveSessions(obj) {
   _sessionsCache = obj;
   DB.saveSessions(obj);
+}
+function loadOriginalBottles() { return _originalBottlesCache; }
+function saveOriginalBottles(arr) {
+  _originalBottlesCache = arr;
+  DB.saveOriginalBottles(arr);
 }
 
 function genUkey() {
@@ -406,6 +412,41 @@ function renderMenu() {
     return;
   }
 
+  if (state.currentCategory === "original") {
+    const origItems = MENU_DATA.items.filter((i) => i.category === "original");
+    let oh = origItems.map((item) =>
+      `<button class="menu-item" data-id="${item.id}"><span class="emoji">${item.emoji}</span><span class="name">${item.name}</span><span class="price">${fmt(item.price)}</span></button>`
+    ).join("");
+    const bottles = loadOriginalBottles();
+    bottles.forEach((b, idx) => {
+      oh += `<button class="menu-item orig-bottle-btn" data-obidx="${idx}"><span class="emoji">🎂</span><span class="name">${escapeHtml(b.name)}</span><span class="price">${fmt(b.price)}</span></button>`;
+    });
+    oh += `<button class="menu-item menu-item-custom" id="btn-open-orig-register"><span class="emoji">✏️</span><span class="name">オリシャン登録/管理</span><span class="price">追加・削除</span></button>`;
+    c.innerHTML = oh;
+    c.querySelectorAll(".menu-item:not(.menu-item-custom):not(.orig-bottle-btn)").forEach((el) => {
+      if (el.dataset.id) el.addEventListener("click", () => { if (!guardTable()) return; openConfirmItem(parseInt(el.dataset.id)); });
+    });
+    c.querySelectorAll(".orig-bottle-btn").forEach((el) => {
+      el.addEventListener("click", () => {
+        if (!guardTable()) return;
+        const idx = parseInt(el.dataset.obidx, 10);
+        const b = bottles[idx];
+        if (!b) return;
+        state.confirmItem = { id: 9900 + idx, name: b.name, price: b.price, category: "original", emoji: "🎂", isCustom: true };
+        state.confirmQty = 1;
+        document.getElementById("confirm-item-detail").innerHTML =
+          `<span class="confirm-emoji">🎂</span><span class="confirm-name">${escapeHtml(b.name)}</span><span class="confirm-price">${fmt(b.price)}</span>`;
+        document.getElementById("confirm-qty-num").textContent = "1";
+        document.getElementById("modal-confirm-item").classList.remove("hidden");
+        lockScroll();
+      });
+    });
+    document.getElementById("btn-open-orig-register").addEventListener("click", () => {
+      openOrigBottleModal();
+    });
+    return;
+  }
+
   let items =
     state.currentCategory === "all"
       ? MENU_DATA.items
@@ -645,7 +686,16 @@ document.getElementById("btn-resume-session").addEventListener("click", () => {
 });
 
 document.getElementById("btn-new-session").addEventListener("click", () => {
-  if (!confirm("新規を押すと卓のデータ消えます、本当に良いですか？")) return;
+  document.getElementById("modal-confirm-new").classList.remove("hidden");
+});
+document.getElementById("btn-confirm-new-cancel").addEventListener("click", () => {
+  document.getElementById("modal-confirm-new").classList.add("hidden");
+});
+document.getElementById("btn-close-confirm-new").addEventListener("click", () => {
+  document.getElementById("modal-confirm-new").classList.add("hidden");
+});
+document.getElementById("btn-confirm-new-ok").addEventListener("click", () => {
+  document.getElementById("modal-confirm-new").classList.add("hidden");
   clearSessionForTable(state.pendingTableNumber);
   showFreshTableModal();
 });
@@ -899,6 +949,55 @@ document.getElementById("btn-add-gacha").addEventListener("click", () => {
   renderCart();
   document.getElementById("modal-gacha").classList.add("hidden");
   unlockScroll();
+});
+
+// ============================
+// Original Bottle modal
+// ============================
+function openOrigBottleModal() {
+  renderOrigBottleList();
+  document.getElementById("orig-bottle-name").value = "";
+  document.getElementById("orig-bottle-price").value = "";
+  document.getElementById("modal-orig-bottle").classList.remove("hidden");
+  lockScroll();
+}
+function renderOrigBottleList() {
+  const bottles = loadOriginalBottles();
+  const el = document.getElementById("orig-bottle-list");
+  if (bottles.length === 0) {
+    el.innerHTML = '<div class="empty-state" style="padding:12px;font-size:12px;">登録なし</div>';
+    return;
+  }
+  el.innerHTML = bottles.map((b, i) =>
+    `<div class="cast-list-item"><span class="cast-list-name">🎂 ${escapeHtml(b.name)} — ${fmt(b.price)}</span><button class="btn-cast-del" data-obdelidx="${i}">削除</button></div>`
+  ).join("");
+  el.querySelectorAll("[data-obdelidx]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.obdelidx, 10);
+      const b = bottles[idx];
+      if (b && confirm(`「${b.name}」を削除しますか？`)) {
+        const arr = bottles.filter((_, j) => j !== idx);
+        saveOriginalBottles(arr);
+        renderOrigBottleList();
+      }
+    });
+  });
+}
+document.getElementById("btn-close-orig-bottle").addEventListener("click", () => {
+  document.getElementById("modal-orig-bottle").classList.add("hidden");
+  unlockScroll();
+  renderMenu();
+});
+document.getElementById("btn-add-orig-bottle").addEventListener("click", () => {
+  const name = document.getElementById("orig-bottle-name").value.trim();
+  const price = parseInt(document.getElementById("orig-bottle-price").value, 10) || 0;
+  if (!name || price <= 0) { alert("名前と金額を入力してください"); return; }
+  const bottles = loadOriginalBottles();
+  bottles.push({ name, price });
+  saveOriginalBottles(bottles);
+  document.getElementById("orig-bottle-name").value = "";
+  document.getElementById("orig-bottle-price").value = "";
+  renderOrigBottleList();
 });
 
 // ============================
@@ -1769,6 +1868,47 @@ function renderDailyReport() {
     });
   }
 
+  // Cast individual sales aggregation
+  const castIndiv = {};
+  orders.forEach((o) => {
+    o.items.forEach((item) => {
+      const name = String(item.name);
+      const bannaiMatch = name.match(/^場内指名（(.+?)）$/);
+      if (bannaiMatch) {
+        const cn = bannaiMatch[1];
+        if (!castIndiv[cn]) castIndiv[cn] = { bannai: 0, drink: 0, shot: 0, shotPlus: 0, bannaiAmt: 0, drinkAmt: 0, shotAmt: 0, shotPlusAmt: 0 };
+        castIndiv[cn].bannai += item.qty;
+        castIndiv[cn].bannaiAmt += item.price * item.qty;
+        return;
+      }
+      const drinkMatch = name.match(/^(キャストドリンク|キャストショット＋|キャストショット)（(.+?)）$/);
+      if (drinkMatch) {
+        const type = drinkMatch[1];
+        const cn = drinkMatch[2];
+        if (!castIndiv[cn]) castIndiv[cn] = { bannai: 0, drink: 0, shot: 0, shotPlus: 0, bannaiAmt: 0, drinkAmt: 0, shotAmt: 0, shotPlusAmt: 0 };
+        if (type === "キャストドリンク") { castIndiv[cn].drink += item.qty; castIndiv[cn].drinkAmt += item.price * item.qty; }
+        else if (type === "キャストショット＋") { castIndiv[cn].shotPlus += item.qty; castIndiv[cn].shotPlusAmt += item.price * item.qty; }
+        else if (type === "キャストショット") { castIndiv[cn].shot += item.qty; castIndiv[cn].shotAmt += item.price * item.qty; }
+      }
+    });
+  });
+  const castIndivNames = Object.keys(castIndiv).sort((a, b) => a.localeCompare(b, "ja"));
+  let castIndivRows = "";
+  if (castIndivNames.length === 0) {
+    castIndivRows = `<tr><td colspan="6" style="color:var(--text-muted);font-size:11px;">なし</td></tr>`;
+  } else {
+    castIndivNames.forEach((cn) => {
+      const d = castIndiv[cn];
+      const total = d.bannaiAmt + d.drinkAmt + d.shotAmt + d.shotPlusAmt;
+      castIndivRows += `<tr><td class="name-cell">${escapeHtml(cn)}</td><td class="num-cell">${d.bannai}</td><td class="num-cell">${d.drink}</td><td class="num-cell">${d.shot}</td><td class="num-cell">${d.shotPlus}</td><td class="amount-cell">${fmt(total)}</td></tr>`;
+    });
+    const grandIndivTotal = castIndivNames.reduce((s, cn) => {
+      const d = castIndiv[cn];
+      return s + d.bannaiAmt + d.drinkAmt + d.shotAmt + d.shotPlusAmt;
+    }, 0);
+    castIndivRows += `<tr class="row-total"><td>合計</td><td></td><td></td><td></td><td></td><td class="amount-cell">${fmt(grandIndivTotal)}</td></tr>`;
+  }
+
   const monthKey = `${reportDate.getFullYear()}-${pz(reportDate.getMonth() + 1)}`;
   const monthOrders = state.orders.filter((o) => getBusinessMonth(o.timestamp) === monthKey);
   const monthTotal = monthOrders.reduce((s, o) => s + o.total, 0);
@@ -1797,6 +1937,14 @@ function renderDailyReport() {
               <tr class="row-total"><td colspan="6">計</td><td class="amount-cell">${fmt(grandTotal)}</td></tr>
               <tr class="row-total"><td colspan="6">月間売上金</td><td class="amount-cell">${fmt(monthTotal)}</td></tr>
             </tfoot>
+          </table>
+        </div>
+
+        <div class="report-section">
+          <h3>👑 キャスト別売上</h3>
+          <table class="report-table">
+            <thead><tr><th>キャスト名</th><th>場内指名</th><th>ドリンク</th><th>ショット</th><th>ショット＋</th><th>合計</th></tr></thead>
+            <tbody>${castIndivRows}</tbody>
           </table>
         </div>
 
@@ -2096,13 +2244,14 @@ function updateMobileBadge() {
 // ============================
 async function boot() {
   try {
-    const [orders, counter, castList, sessions, expenses, dailyPay] = await Promise.all([
+    const [orders, counter, castList, sessions, expenses, dailyPay, originalBottles] = await Promise.all([
       DB.loadOrders(),
       DB.loadOrderCounter(),
       DB.loadCastList(),
       DB.loadSessions(),
       DB.loadExpenses(),
       DB.loadDailyPay(),
+      DB.loadOriginalBottles(),
     ]);
     state.orders = orders;
     state.orderCounter = counter;
@@ -2110,6 +2259,7 @@ async function boot() {
     _sessionsCache = sessions;
     _expensesCache = expenses;
     _dailyPayCache = dailyPay;
+    _originalBottlesCache = originalBottles;
   } catch (e) {
     console.warn("Firestore load failed, starting with empty state:", e);
   }
@@ -2133,6 +2283,11 @@ async function boot() {
   DB.onCastListChange((list) => {
     _castListCache = list;
     if (state.currentCategory === "other") renderMenu();
+  });
+
+  DB.onOriginalBottlesChange((list) => {
+    _originalBottlesCache = list;
+    if (state.currentCategory === "original") renderMenu();
   });
 }
 
