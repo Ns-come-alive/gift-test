@@ -655,19 +655,22 @@ button:active {
 
 .payment-methods {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 18px;
 }
 
 .payment-btn {
-  flex: 1;
-  padding: 10px;
+  flex: 1 1 auto;
+  min-width: 80px;
+  padding: 10px 6px;
   border-radius: var(--radius);
   background: var(--bg);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   border: 1px solid var(--border);
+  white-space: nowrap;
 }
 
 .payment-btn:hover {

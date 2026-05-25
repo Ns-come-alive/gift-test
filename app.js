@@ -83,30 +83,37 @@ function getCartBeforeCard() {
 }
 function getCartCardFee() {
   if (state.paymentMethod !== "card") return 0;
-  const before = getCartBeforeCard();
-  if (before <= 0) return 0;
-  const totalWithCard = Math.floor(before * 1.08);
-  return totalWithCard - before;
+  const beforeRaw = getCartBeforeCard();
+  if (beforeRaw <= 0) return 0;
+  const rounded = roundUpTo100(beforeRaw);
+  const totalWithCard = Math.floor(rounded * 1.08);
+  return totalWithCard - rounded;
 }
 function roundUpTo100(n) {
   return n % 100 === 0 ? n : Math.ceil(n / 100) * 100;
 }
 function getCartTotal() {
-  let total;
+  const beforeCard = getCartBeforeCard();
+  let base = Math.max(0, beforeCard);
+  base = base >= 10 ? roundUpTo100(base) : base;
   if (state.paymentMethod === "card") {
-    total = Math.max(0, Math.floor(getCartBeforeCard() * 1.08));
-  } else {
-    total = Math.max(0, getCartBeforeCard());
+    return Math.max(0, Math.floor(base * 1.08));
   }
-  if (state.paymentMethod === "cash" && total >= 10) return roundUpTo100(total);
-  return total;
+  return base;
+}
+function getCartCardFeeLabel() {
+  if (state.paymentMethod === "card") return "カード手数料(8%)";
+  return "";
+}
+function isCardMethod() {
+  return state.paymentMethod === "card" || state.paymentMethod === "card_nofee";
 }
 
 function saveOrders() {
   DB.saveOrderCounter(state.orderCounter);
 }
 
-const methodLabel = { cash: "💴 現金", card: "💳 カード", qr: "📱 QR決済", urikake: "📝 売掛" };
+const methodLabel = { cash: "💴 現金", card: "💳 カード", card_nofee: "💳 カード(手数料なし)", qr: "📱 QR決済", urikake: "📝 売掛" };
 const getML = (m) => methodLabel[m] || m;
 
 function getBusinessDate(s) {
@@ -638,6 +645,7 @@ document.getElementById("btn-resume-session").addEventListener("click", () => {
 });
 
 document.getElementById("btn-new-session").addEventListener("click", () => {
+  if (!confirm("新規を押すと卓のデータ消えます、本当に良いですか？")) return;
   clearSessionForTable(state.pendingTableNumber);
   showFreshTableModal();
 });
@@ -1030,7 +1038,9 @@ function renderCart() {
   if (state.paymentMethod === "card" && state.cart.length > 0) {
     cfr.classList.remove("hidden");
     document.getElementById("card-fee").textContent = fmt(getCartCardFee());
-  } else cfr.classList.add("hidden");
+  } else {
+    cfr.classList.add("hidden");
+  }
   document.getElementById("total").textContent = fmt(getCartTotal());
   updateMobileBadge();
   if (state.tableNumber && state.checkinTime) saveSessionForTable(state.tableNumber);
@@ -1097,7 +1107,7 @@ function updateTableBadge() {
 function openCheckout() {
   document.getElementById("modal-checkout").classList.remove("hidden");
   document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
-  document.getElementById("checkout-card-fee").classList.toggle("hidden", state.paymentMethod !== "card");
+  document.getElementById("checkout-card-fee").classList.toggle("hidden", !isCardMethod());
   state.receivedAmount = "";
   updatePaymentUI();
   updateReceivedDisplay();
@@ -1121,7 +1131,16 @@ document.querySelectorAll(".payment-btn").forEach((b) => {
 function updatePaymentUI() {
   document.querySelectorAll(".payment-btn").forEach((b) => b.classList.toggle("active", b.dataset.method === state.paymentMethod));
   document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
-  document.getElementById("checkout-card-fee").classList.toggle("hidden", state.paymentMethod !== "card");
+  const cardFeeEl = document.getElementById("checkout-card-fee");
+  if (state.paymentMethod === "card") {
+    cardFeeEl.classList.remove("hidden");
+    cardFeeEl.querySelector("span").textContent = "※ カード手数料 8% 込み";
+  } else if (state.paymentMethod === "card_nofee") {
+    cardFeeEl.classList.remove("hidden");
+    cardFeeEl.querySelector("span").textContent = "※ カード決済（手数料なし）";
+  } else {
+    cardFeeEl.classList.add("hidden");
+  }
   const cs = document.getElementById("cash-input-section");
   const urikakeSection = document.getElementById("urikake-section");
   if (state.paymentMethod === "cash") {
@@ -1618,7 +1637,7 @@ function renderDailyReport() {
   const el = document.getElementById("daily-report-content");
 
   const cashOrders = orders.filter((o) => o.method === "cash");
-  const cardOrders = orders.filter((o) => o.method === "card");
+  const cardOrders = orders.filter((o) => o.method === "card" || o.method === "card_nofee");
   const qrOrders = orders.filter((o) => o.method === "qr");
   const urikakeOrders = orders.filter((o) => o.method === "urikake");
   const cashTotal = cashOrders.reduce((s, o) => s + o.total, 0);
@@ -1659,7 +1678,8 @@ function renderDailyReport() {
 
   let cardRows = "";
   cardOrders.forEach((o) => {
-    cardRows += `<tr><td class="name-cell">#${o.id.toString().padStart(4, "0")}</td><td class="amount-cell">${fmt(o.total)}</td></tr>`;
+    const feeTag = o.method === "card_nofee" ? '<span style="font-size:10px;color:var(--gold-light);margin-left:4px;">(手数料なし)</span>' : "";
+    cardRows += `<tr><td class="name-cell">#${o.id.toString().padStart(4, "0")}${feeTag}</td><td class="amount-cell">${fmt(o.total)}</td></tr>`;
   });
   if (cardRows === "") cardRows = `<tr><td colspan="2" style="color:var(--text-muted);font-size:11px;">なし</td></tr>`;
 

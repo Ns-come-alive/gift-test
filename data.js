@@ -36,7 +36,7 @@ const MENU_DATA = {
     { id: 4, name: "30分延長", price: 2000, category: "system", emoji: "⏱️" },
     { id: 5, name: "60分延長", price: 3500, category: "system", emoji: "⏱️" },
     { id: 6, name: "推し指名", price: 2000, category: "system", emoji: "👑" },
-    { id: 7, name: "場内指名", price: 1000, category: "system", emoji: "💫" },
+    { id: 7, name: "場内指名", price: 1000, category: "system", emoji: "💫", requiresRecipient: true },
     { id: 8, name: "同伴", price: 2000, category: "system", emoji: "🤝" },
     { id: 9, name: "新規特別プラン", price: 1000, category: "system", emoji: "🌟", isTaxFree: true },
     { id: 110, name: "飲み放題（ビール・炭酸）", price: 1000, category: "system", emoji: "🍺" },
