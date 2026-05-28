@@ -84,27 +84,82 @@ function startExtensionTimer() {
   if (_extensionTimer) clearInterval(_extensionTimer);
   _extensionTimer = setInterval(checkAutoExtension, 30000);
 }
+
+function calcExpectedExtensions(elapsedMin) {
+  if (elapsedMin < 60) return { ext30: 0, ext60: 0 };
+  const halfPeriods = Math.floor((elapsedMin - 60) / 30) + 1;
+  const ext60 = Math.floor(halfPeriods / 2);
+  const ext30 = halfPeriods % 2;
+  return { ext30, ext60 };
+}
+
 function checkAutoExtension() {
   if (!state.checkinTime || !state.tableNumber) return;
   const checkin = new Date(state.checkinTime);
   const now = new Date();
   const elapsedMin = (now - checkin) / 60000;
 
-  const ext30 = MENU_DATA.items.find((i) => i.id === 4);
-  const ext60 = MENU_DATA.items.find((i) => i.id === 5);
-  if (!ext30 || !ext60) return;
+  const ext30Item = MENU_DATA.items.find((i) => i.id === 4);
+  const ext60Item = MENU_DATA.items.find((i) => i.id === 5);
+  if (!ext30Item || !ext60Item) return;
 
-  const has30 = state.cart.some((l) => l.id === 4 && l.name === ext30.name);
-  const has60 = state.cart.some((l) => l.id === 5 && l.name === ext60.name);
+  const expected = calcExpectedExtensions(elapsedMin);
+  const qty = state.guestCount || 1;
 
-  if (elapsedMin >= 60 && !has60) {
-    state.cart = state.cart.filter((l) => !(l.id === 4 && l.name === ext30.name));
-    pushCartLine({ ...ext60, qty: state.guestCount || 1 });
-    renderCart();
-  } else if (elapsedMin >= 30 && elapsedMin < 60 && !has30 && !has60) {
-    pushCartLine({ ...ext30, qty: state.guestCount || 1 });
-    renderCart();
+  const cur30 = state.cart.find((l) => l.id === 4 && l.name === ext30Item.name);
+  const cur60 = state.cart.find((l) => l.id === 5 && l.name === ext60Item.name);
+  const curQty30 = cur30 ? cur30.qty : 0;
+  const curQty60 = cur60 ? cur60.qty : 0;
+  const need30 = expected.ext30 * qty;
+  const need60 = expected.ext60 * qty;
+
+  if (curQty30 === need30 && curQty60 === need60) return;
+
+  let changed = false;
+  if (need30 === 0 && cur30) {
+    state.cart = state.cart.filter((l) => l.ukey !== cur30.ukey);
+    changed = true;
+  } else if (need30 > 0) {
+    if (cur30) { if (cur30.qty !== need30) { cur30.qty = need30; changed = true; } }
+    else { pushCartLine({ ...ext30Item, qty: need30 }); changed = true; }
   }
+
+  if (need60 === 0 && cur60) {
+    state.cart = state.cart.filter((l) => l.ukey !== cur60.ukey);
+    changed = true;
+  } else if (need60 > 0) {
+    if (cur60) { if (cur60.qty !== need60) { cur60.qty = need60; changed = true; } }
+    else { pushCartLine({ ...ext60Item, qty: need60 }); changed = true; }
+  }
+
+  if (changed) renderCart();
+}
+
+function syncExtensionQtyToGuests() {
+  if (!state.checkinTime) return;
+  const checkin = new Date(state.checkinTime);
+  const now = new Date();
+  const elapsedMin = (now - checkin) / 60000;
+  const expected = calcExpectedExtensions(elapsedMin);
+  const qty = state.guestCount || 1;
+
+  const ext30Item = MENU_DATA.items.find((i) => i.id === 4);
+  const ext60Item = MENU_DATA.items.find((i) => i.id === 5);
+  if (!ext30Item || !ext60Item) return;
+
+  const cur30 = state.cart.find((l) => l.id === 4 && l.name === ext30Item.name);
+  const cur60 = state.cart.find((l) => l.id === 5 && l.name === ext60Item.name);
+
+  const need30 = expected.ext30 * qty;
+  const need60 = expected.ext60 * qty;
+
+  if (cur30) { if (need30 > 0) cur30.qty = need30; else state.cart = state.cart.filter((l) => l.ukey !== cur30.ukey); }
+  if (cur60) { if (need60 > 0) cur60.qty = need60; else state.cart = state.cart.filter((l) => l.ukey !== cur60.ukey); }
+
+  const setItem1 = state.cart.find((l) => l.id === 1);
+  const setItem2 = state.cart.find((l) => l.id === 2);
+  if (setItem1) setItem1.qty = qty;
+  if (setItem2) setItem2.qty = qty;
 }
 
 function getCartSubtotal() {
@@ -941,11 +996,6 @@ function finishCheckin(guests) {
     state.cast = null;
     state.castsArr = [];
 
-    const setItem = getAutoSetItem();
-    if (setItem) {
-      pushCartLine({ ...setItem, qty: guests });
-    }
-
     if (AUTO_SHINKI_SOURCES.includes(state.pendingSource)) {
       const shinki = MENU_DATA.items.find((i) => i.id === 9);
       if (shinki) {
@@ -1218,12 +1268,14 @@ document.getElementById("guest-minus").addEventListener("click", () => {
   if (state.guestCount > 1) {
     state.guestCount--;
     document.getElementById("guest-count").textContent = state.guestCount;
+    syncExtensionQtyToGuests();
     renderCart();
   }
 });
 document.getElementById("guest-plus").addEventListener("click", () => {
   state.guestCount++;
   document.getElementById("guest-count").textContent = state.guestCount;
+  syncExtensionQtyToGuests();
   renderCart();
 });
 
