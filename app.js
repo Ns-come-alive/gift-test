@@ -70,6 +70,43 @@ function getTableLabel(num) {
   return num;
 }
 
+function roundUpTo5Min(date) {
+  const d = new Date(date);
+  const m = d.getMinutes();
+  const remainder = m % 5;
+  if (remainder > 0) d.setMinutes(m + (5 - remainder), 0, 0);
+  else d.setSeconds(0, 0);
+  return d;
+}
+
+let _extensionTimer = null;
+function startExtensionTimer() {
+  if (_extensionTimer) clearInterval(_extensionTimer);
+  _extensionTimer = setInterval(checkAutoExtension, 30000);
+}
+function checkAutoExtension() {
+  if (!state.checkinTime || !state.tableNumber) return;
+  const checkin = new Date(state.checkinTime);
+  const now = new Date();
+  const elapsedMin = (now - checkin) / 60000;
+
+  const ext30 = MENU_DATA.items.find((i) => i.id === 4);
+  const ext60 = MENU_DATA.items.find((i) => i.id === 5);
+  if (!ext30 || !ext60) return;
+
+  const has30 = state.cart.some((l) => l.id === 4 && l.name === ext30.name);
+  const has60 = state.cart.some((l) => l.id === 5 && l.name === ext60.name);
+
+  if (elapsedMin >= 60 && !has60) {
+    state.cart = state.cart.filter((l) => !(l.id === 4 && l.name === ext30.name));
+    pushCartLine({ ...ext60, qty: state.guestCount || 1 });
+    renderCart();
+  } else if (elapsedMin >= 30 && elapsedMin < 60 && !has30 && !has60) {
+    pushCartLine({ ...ext30, qty: state.guestCount || 1 });
+    renderCart();
+  }
+}
+
 function getCartSubtotal() {
   return state.cart.reduce((s, i) => s + i.price * i.qty, 0);
 }
@@ -119,7 +156,7 @@ function saveOrders() {
   DB.saveOrderCounter(state.orderCounter);
 }
 
-const methodLabel = { cash: "💴 現金", card: "💳 カード", card_nofee: "💳 カード(手数料なし)", qr: "📱 QR決済", urikake: "📝 売掛" };
+const methodLabel = { cash: "💴 現金", card: "💳 カード", card_nofee: "💳 カード(手数料なし)", split: "💴💳 カード&現金", qr: "📱 QR決済", urikake: "📝 売掛" };
 const getML = (m) => methodLabel[m] || m;
 
 function getBusinessDate(s) {
@@ -675,6 +712,8 @@ document.getElementById("btn-resume-session").addEventListener("click", () => {
   if (!s) return;
   state.tableNumber = state.pendingTableNumber;
   applySession(s);
+  startExtensionTimer();
+  checkAutoExtension();
   document.getElementById("modal-table").classList.add("hidden");
   unlockScroll();
   updateTableBadge();
@@ -877,10 +916,22 @@ document.getElementById("btn-free-repeat").addEventListener("click", () => {
   goToGuestStep();
 });
 
+function getAutoSetItem() {
+  const now = new Date();
+  const h = now.getHours();
+  if (h >= 23 || h < 20) return MENU_DATA.items.find((i) => i.id === 2);
+  return MENU_DATA.items.find((i) => i.id === 1);
+}
+
+const AUTO_SHINKI_SOURCES = ["Google", "ポケパラ", "看板", "インスタ", "Tiktok"];
+
 function finishCheckin(guests) {
   state.tableNumber = state.pendingTableNumber;
   state.guestCount = guests;
   state.tableMemo = "";
+  const rounded = roundUpTo5Min(new Date());
+  state.checkinTime = rounded.toISOString();
+  state.cart = [];
 
   if (state.pendingType === "new") {
     state.customerType = "new";
@@ -889,8 +940,18 @@ function finishCheckin(guests) {
     state.catchNames = [...state.pendingCatchNames];
     state.cast = null;
     state.castsArr = [];
-    state.checkinTime = new Date().toISOString();
-    state.cart = [];
+
+    const setItem = getAutoSetItem();
+    if (setItem) {
+      pushCartLine({ ...setItem, qty: guests });
+    }
+
+    if (AUTO_SHINKI_SOURCES.includes(state.pendingSource)) {
+      const shinki = MENU_DATA.items.find((i) => i.id === 9);
+      if (shinki) {
+        pushCartLine({ ...shinki, qty: guests });
+      }
+    }
   } else {
     state.customerType = "repeat";
     state.source = null;
@@ -898,8 +959,12 @@ function finishCheckin(guests) {
     state.catchNames = [];
     state.castsArr = [...state.pendingRepeatCasts];
     state.cast = state.castsArr.length ? state.castsArr.join("・") : null;
-    state.checkinTime = new Date().toISOString();
-    state.cart = [];
+
+    const setItem = getAutoSetItem();
+    if (setItem) {
+      pushCartLine({ ...setItem, qty: guests });
+    }
+
     const shimei = MENU_DATA.items.find((i) => i.id === 6);
     if (shimei && state.castsArr.length) {
       state.castsArr.forEach((nm) => {
@@ -915,6 +980,7 @@ function finishCheckin(guests) {
     }
   }
 
+  startExtensionTimer();
   updateTableBadge();
   renderCart();
   closeTableModal();
@@ -1082,6 +1148,7 @@ document.getElementById("btn-add-custom").addEventListener("click", () => {
 // Cart UI
 // ============================
 function clearCart() {
+  if (_extensionTimer) { clearInterval(_extensionTimer); _extensionTimer = null; }
   if (state.tableNumber) clearSessionForTable(state.tableNumber);
   state.cart = [];
   state.tableNumber = null;
@@ -1176,16 +1243,26 @@ function updateTableBadge() {
     const label = getTableLabel(state.tableNumber);
     tb.textContent = `🪑 ${label}`;
     tb.classList.add("active");
-    let info = state.customerType === "new" ? "🆕 新規" : "🔄 リピート";
-    if (state.source) info += ` (${state.source})`;
-    if (state.catchNames && state.catchNames.length) info += ` 🤝${state.catchNames.join("・")}`;
-    else if (state.catchName) info += ` 🤝${state.catchName}`;
-    if (state.cast) info = `👑 ${state.cast}`;
+
+    let infoHtml = "";
+    if (state.customerType === "new") {
+      const srcText = state.source || "新規";
+      infoHtml += `🆕 <span class="badge-edit-btn" id="btn-edit-source">${escapeHtml(srcText)} ✏️</span>`;
+      if (state.catchNames && state.catchNames.length) infoHtml += ` 🤝${state.catchNames.map(n => escapeHtml(n)).join("・")}`;
+    } else if (state.cast) {
+      infoHtml += `👑 ${escapeHtml(state.cast)}`;
+    } else {
+      infoHtml += "🔄 リピート";
+    }
     if (state.checkinTime) {
       const t = new Date(state.checkinTime);
-      info += ` ｜ 入店 ${pz(t.getHours())}:${pz(t.getMinutes())}`;
+      infoHtml += ` ｜ 入店 <span class="badge-edit-btn" id="btn-edit-checkin">${pz(t.getHours())}:${pz(t.getMinutes())} ✏️</span>`;
     }
-    cb.textContent = info;
+    cb.innerHTML = infoHtml;
+
+    document.getElementById("btn-edit-source")?.addEventListener("click", openSourceEditModal);
+    document.getElementById("btn-edit-checkin")?.addEventListener("click", openCheckinTimeEditModal);
+
     gr.classList.remove("hidden");
     memoRow.classList.remove("hidden");
     document.getElementById("guest-count").textContent = state.guestCount;
@@ -1193,11 +1270,31 @@ function updateTableBadge() {
   } else {
     tb.textContent = "卓未選択";
     tb.classList.remove("active");
-    cb.textContent = "";
+    cb.innerHTML = "";
     gr.classList.add("hidden");
     memoRow.classList.add("hidden");
     memoEl.value = "";
   }
+}
+
+function openSourceEditModal() {
+  const el = document.getElementById("modal-edit-source");
+  el.classList.remove("hidden");
+  lockScroll();
+}
+
+function openCheckinTimeEditModal() {
+  const el = document.getElementById("modal-edit-checkin");
+  if (state.checkinTime) {
+    const t = new Date(state.checkinTime);
+    let h = t.getHours();
+    if (h < 18) h += 24;
+    const m = Math.floor(t.getMinutes() / 5) * 5;
+    document.getElementById("edit-checkin-hour").value = h;
+    document.getElementById("edit-checkin-min").value = m;
+  }
+  el.classList.remove("hidden");
+  lockScroll();
 }
 
 // ============================
@@ -1227,34 +1324,76 @@ document.querySelectorAll(".payment-btn").forEach((b) => {
   });
 });
 
+document.getElementById("split-cash-amount").addEventListener("input", () => {
+  if (state.paymentMethod === "split") updateSplitSummary();
+});
+
 function updatePaymentUI() {
   document.querySelectorAll(".payment-btn").forEach((b) => b.classList.toggle("active", b.dataset.method === state.paymentMethod));
-  document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
+
   const cardFeeEl = document.getElementById("checkout-card-fee");
-  if (state.paymentMethod === "card") {
+  const cs = document.getElementById("cash-input-section");
+  const urikakeSection = document.getElementById("urikake-section");
+  const splitSection = document.getElementById("split-section");
+
+  cs.classList.add("hidden");
+  urikakeSection.classList.add("hidden");
+  splitSection.classList.add("hidden");
+  cardFeeEl.classList.add("hidden");
+
+  if (state.paymentMethod === "split") {
+    splitSection.classList.remove("hidden");
+    cardFeeEl.classList.remove("hidden");
+    cardFeeEl.querySelector("span").textContent = "※ カード分に8%手数料";
+    updateSplitSummary();
+    document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
+    document.getElementById("btn-confirm-payment").disabled = !canPay();
+  } else if (state.paymentMethod === "card") {
     cardFeeEl.classList.remove("hidden");
     cardFeeEl.querySelector("span").textContent = "※ カード手数料 8% 込み";
+    document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
+    document.getElementById("btn-confirm-payment").disabled = false;
   } else if (state.paymentMethod === "card_nofee") {
     cardFeeEl.classList.remove("hidden");
     cardFeeEl.querySelector("span").textContent = "※ カード決済（手数料なし）";
-  } else {
-    cardFeeEl.classList.add("hidden");
-  }
-  const cs = document.getElementById("cash-input-section");
-  const urikakeSection = document.getElementById("urikake-section");
-  if (state.paymentMethod === "cash") {
+    document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
+    document.getElementById("btn-confirm-payment").disabled = false;
+  } else if (state.paymentMethod === "cash") {
     cs.classList.remove("hidden");
-    urikakeSection.classList.add("hidden");
+    document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
     document.getElementById("btn-confirm-payment").disabled = !canPay();
   } else if (state.paymentMethod === "urikake") {
-    cs.classList.add("hidden");
     urikakeSection.classList.remove("hidden");
+    document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
     document.getElementById("btn-confirm-payment").disabled = false;
   } else {
-    cs.classList.add("hidden");
-    urikakeSection.classList.add("hidden");
+    document.getElementById("checkout-amount").textContent = fmt(getCartTotal());
     document.getElementById("btn-confirm-payment").disabled = false;
   }
+}
+
+function getSplitData() {
+  const baseTotal = getCartTotal();
+  const cashPart = parseInt(document.getElementById("split-cash-amount")?.value, 10) || 0;
+  const cardBase = Math.max(0, baseTotal - cashPart);
+  const cardWithFee = cardBase > 0 ? Math.floor(cardBase * 1.08) : 0;
+  const cardFee = cardWithFee - cardBase;
+  const grandTotal = cashPart + cardWithFee;
+  return { cashPart, cardBase, cardFee, cardWithFee, grandTotal, baseTotal };
+}
+
+function updateSplitSummary() {
+  const d = getSplitData();
+  const el = document.getElementById("split-summary");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="split-row"><span>合計（税込）</span><span>${fmt(d.baseTotal)}</span></div>
+    <div class="split-row"><span>💴 現金</span><span>${fmt(d.cashPart)}</span></div>
+    <div class="split-row"><span>💳 カード分</span><span>${fmt(d.cardBase)}</span></div>
+    <div class="split-row"><span>💳 カード手数料(8%)</span><span>${fmt(d.cardFee)}</span></div>
+    <div class="split-row split-grand"><span>総額</span><span>${fmt(d.grandTotal)}</span></div>`;
+  document.getElementById("checkout-amount").textContent = fmt(d.grandTotal);
+  document.getElementById("btn-confirm-payment").disabled = d.cashPart <= 0 || d.cashPart >= d.baseTotal;
 }
 
 document.querySelectorAll(".num-btn").forEach((b) => {
@@ -1304,14 +1443,22 @@ document.querySelectorAll('input[name="urikake-type"]').forEach((r) => {
 });
 
 document.getElementById("btn-confirm-payment").addEventListener("click", () => {
-  const total = getCartTotal();
+  let total = getCartTotal();
   let received = total;
   let change = 0;
   let urikakeData = null;
+  let splitData = null;
 
   if (state.paymentMethod === "cash") {
     received = parseInt(state.receivedAmount, 10) || 0;
     change = Math.max(0, received - total);
+  } else if (state.paymentMethod === "split") {
+    const sd = getSplitData();
+    if (sd.cashPart <= 0 || sd.cashPart >= sd.baseTotal) { alert("現金額を正しく入力してください"); return; }
+    splitData = { cashPart: sd.cashPart, cardBase: sd.cardBase, cardFee: sd.cardFee, cardWithFee: sd.cardWithFee };
+    total = sd.grandTotal;
+    received = sd.cashPart;
+    change = 0;
   } else if (state.paymentMethod === "urikake") {
     const custName = document.getElementById("urikake-customer-name").value.trim();
     if (!custName) { alert("お客様名を入力してください"); return; }
@@ -1337,7 +1484,7 @@ document.getElementById("btn-confirm-payment").addEventListener("click", () => {
     subtotal: getCartSubtotal(),
     tax: getCartTax(),
     sc: getCartSC(),
-    cardFee: getCartCardFee(),
+    cardFee: state.paymentMethod === "split" ? (splitData ? splitData.cardFee : 0) : getCartCardFee(),
     total,
     received,
     change,
@@ -1356,6 +1503,7 @@ document.getElementById("btn-confirm-payment").addEventListener("click", () => {
     timestamp: new Date().toISOString(),
     tableMemo: state.tableMemo,
     urikake: urikakeData,
+    splitPayment: splitData,
   };
   state.orders.push(order);
   DB.saveOrder(order);
@@ -1400,6 +1548,16 @@ function showReceipt(order, fromHistory) {
     }
   }
 
+  let splitH = "";
+  if (order.splitPayment) {
+    const sp = order.splitPayment;
+    splitH = `
+      <div class="receipt-item"><span>💴 現金</span><span>${fmt(sp.cashPart)}</span></div>
+      <div class="receipt-item"><span>💳 カード分</span><span>${fmt(sp.cardBase)}</span></div>
+      <div class="receipt-item"><span>💳 カード手数料(8%)</span><span>${fmt(sp.cardFee)}</span></div>
+      <div class="receipt-item"><span>💳 カード支払い</span><span>${fmt(sp.cardWithFee)}</span></div>`;
+  }
+
   document.getElementById("receipt-content").innerHTML = `
     <div class="receipt-header"><div class="shop-name">Gift</div><div class="shop-info">ご来店ありがとうございます</div></div>
     ${infoH}
@@ -1412,7 +1570,7 @@ function showReceipt(order, fromHistory) {
       <div class="receipt-item receipt-grand-total"><span>合計</span><span>${fmt(order.total)}</span></div>
     </div>
     <div class="receipt-payment">
-      <div class="receipt-item"><span>${getML(order.method)}</span><span>${fmt(order.received)}</span></div>
+      ${splitH || `<div class="receipt-item"><span>${getML(order.method)}</span><span>${fmt(order.received)}</span></div>`}
       ${order.method === "cash" ? `<div class="receipt-item"><span>おつり</span><span>${fmt(order.change)}</span></div>` : ""}
       ${urikakeH}
     </div>
@@ -1428,6 +1586,7 @@ function afterReceiptClose() {
     receiptIsFromHistory = false;
     return;
   }
+  if (_extensionTimer) { clearInterval(_extensionTimer); _extensionTimer = null; }
   if (state.tableNumber) clearSessionForTable(state.tableNumber);
   state.cart = [];
   state.tableNumber = null;
@@ -1739,8 +1898,16 @@ function renderDailyReport() {
   const cardOrders = orders.filter((o) => o.method === "card" || o.method === "card_nofee");
   const qrOrders = orders.filter((o) => o.method === "qr");
   const urikakeOrders = orders.filter((o) => o.method === "urikake");
-  const cashTotal = cashOrders.reduce((s, o) => s + o.total, 0);
-  const cardTotal = cardOrders.reduce((s, o) => s + o.total, 0);
+  const splitOrders = orders.filter((o) => o.method === "split");
+
+  let cashTotal = cashOrders.reduce((s, o) => s + o.total, 0);
+  let cardTotal = cardOrders.reduce((s, o) => s + o.total, 0);
+  splitOrders.forEach((o) => {
+    if (o.splitPayment) {
+      cashTotal += o.splitPayment.cashPart;
+      cardTotal += o.splitPayment.cardWithFee;
+    }
+  });
   const qrTotal = qrOrders.reduce((s, o) => s + o.total, 0);
   const urikakeTotal = urikakeOrders.reduce((s, o) => s + o.total, 0);
   const grandTotal = orders.reduce((s, o) => s + o.total, 0);
@@ -1779,6 +1946,11 @@ function renderDailyReport() {
   cardOrders.forEach((o) => {
     const feeTag = o.method === "card_nofee" ? '<span style="font-size:10px;color:var(--gold-light);margin-left:4px;">(手数料なし)</span>' : "";
     cardRows += `<tr><td class="name-cell">#${o.id.toString().padStart(4, "0")}${feeTag}</td><td class="amount-cell">${fmt(o.total)}</td></tr>`;
+  });
+  splitOrders.forEach((o) => {
+    if (o.splitPayment) {
+      cardRows += `<tr><td class="name-cell">#${o.id.toString().padStart(4, "0")}<span style="font-size:10px;color:var(--gold-light);margin-left:4px;">(分割カード分)</span></td><td class="amount-cell">${fmt(o.splitPayment.cardWithFee)}</td></tr>`;
+    }
   });
   if (cardRows === "") cardRows = `<tr><td colspan="2" style="color:var(--text-muted);font-size:11px;">なし</td></tr>`;
 
@@ -2238,6 +2410,67 @@ function updateMobileBadge() {
   b.textContent = n;
   b.classList.toggle("hidden-badge", n === 0);
 }
+
+// ============================
+// Edit Source / Checkin Time modals
+// ============================
+(function initTimeSelects() {
+  const hSel = document.getElementById("edit-checkin-hour");
+  const mSel = document.getElementById("edit-checkin-min");
+  for (let h = 18; h <= 30; h++) {
+    const displayH = h >= 24 ? h - 24 : h;
+    hSel.innerHTML += `<option value="${h}">${pz(displayH)}時</option>`;
+  }
+  for (let m = 0; m < 60; m += 5) {
+    mSel.innerHTML += `<option value="${m}">${pz(m)}分</option>`;
+  }
+})();
+
+document.getElementById("btn-close-edit-source").addEventListener("click", () => {
+  document.getElementById("modal-edit-source").classList.add("hidden");
+  unlockScroll();
+});
+
+document.querySelectorAll(".edit-source-btn").forEach((b) => {
+  b.addEventListener("click", () => {
+    state.source = b.dataset.newsource;
+    document.getElementById("modal-edit-source").classList.add("hidden");
+    unlockScroll();
+    updateTableBadge();
+    renderCart();
+  });
+});
+
+document.getElementById("btn-close-edit-checkin").addEventListener("click", () => {
+  document.getElementById("modal-edit-checkin").classList.add("hidden");
+  unlockScroll();
+});
+
+document.getElementById("btn-save-checkin-time").addEventListener("click", () => {
+  let h = parseInt(document.getElementById("edit-checkin-hour").value, 10);
+  const m = parseInt(document.getElementById("edit-checkin-min").value, 10);
+  const now = new Date();
+  const d = new Date(now);
+  d.setSeconds(0, 0);
+
+  if (h >= 24) {
+    if (now.getHours() < 18) {
+      d.setHours(h - 24, m, 0, 0);
+    } else {
+      d.setDate(d.getDate() + 1);
+      d.setHours(h - 24, m, 0, 0);
+    }
+  } else {
+    d.setHours(h, m, 0, 0);
+  }
+  state.checkinTime = d.toISOString();
+  startExtensionTimer();
+  checkAutoExtension();
+  document.getElementById("modal-edit-checkin").classList.add("hidden");
+  unlockScroll();
+  updateTableBadge();
+  renderCart();
+});
 
 // ============================
 // Init (Firestore)

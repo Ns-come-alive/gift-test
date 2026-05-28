@@ -1949,8 +1949,53 @@ button:active {
   display: none;
 }
 
-#modal-confirm-new {
+#modal-confirm-new,
+#modal-edit-source,
+#modal-edit-checkin {
   z-index: 110;
+}
+
+.badge-edit-btn {
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(201, 169, 110, 0.15);
+  border: 1px solid rgba(201, 169, 110, 0.3);
+  font-size: 11px;
+  transition: background 150ms ease;
+}
+
+.badge-edit-btn:hover {
+  background: rgba(201, 169, 110, 0.3);
+}
+
+.split-section {
+  margin-bottom: 14px;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.split-summary {
+  margin-top: 12px;
+}
+
+.split-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.split-row.split-grand {
+  padding-top: 8px;
+  margin-top: 6px;
+  border-top: 2px solid var(--gold);
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--gold-light);
 }
 
 .mobile-cart-overlay {

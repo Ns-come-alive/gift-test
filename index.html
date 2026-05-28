@@ -183,6 +183,45 @@
       </div>
     </div>
 
+    <!-- 流入経路変更モーダル -->
+    <div class="modal-overlay hidden" id="modal-edit-source">
+      <div class="modal modal-confirm">
+        <div class="modal-header">
+          <h2>流入経路の変更</h2>
+          <button class="modal-close" id="btn-close-edit-source">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="source-btns">
+            <button class="source-btn edit-source-btn" data-newsource="Google">🔍 Google</button>
+            <button class="source-btn edit-source-btn" data-newsource="ポケパラ">📱 ポケパラ</button>
+            <button class="source-btn edit-source-btn" data-newsource="看板">🪧 看板</button>
+            <button class="source-btn edit-source-btn" data-newsource="インスタ">📸 インスタ</button>
+            <button class="source-btn edit-source-btn" data-newsource="Tiktok">🎵 Tiktok</button>
+            <button class="source-btn edit-source-btn" data-newsource="キャッチ">🤝 キャッチ</button>
+            <button class="source-btn edit-source-btn source-btn-other" data-newsource="その他">❓ その他</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 入店時間変更モーダル -->
+    <div class="modal-overlay hidden" id="modal-edit-checkin">
+      <div class="modal modal-confirm">
+        <div class="modal-header">
+          <h2>入店時間の変更</h2>
+          <button class="modal-close" id="btn-close-edit-checkin">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div style="display:flex;gap:12px;align-items:center;justify-content:center;margin-bottom:20px;">
+            <select id="edit-checkin-hour" style="padding:12px;font-size:20px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:inherit;"></select>
+            <span style="font-size:24px;font-weight:800;color:var(--gold);">:</span>
+            <select id="edit-checkin-min" style="padding:12px;font-size:20px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:inherit;"></select>
+          </div>
+          <button class="btn-confirm-cast" id="btn-save-checkin-time">時間を変更</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 新規確認モーダル -->
     <div class="modal-overlay hidden" id="modal-confirm-new">
       <div class="modal modal-confirm">
@@ -359,8 +398,20 @@
             <button class="payment-btn active" data-method="cash">💴 現金</button>
             <button class="payment-btn" data-method="card">💳 カード</button>
             <button class="payment-btn" data-method="card_nofee">💳 カード(手数料なし)</button>
+            <button class="payment-btn" data-method="split">💴💳 カード&現金</button>
             <button class="payment-btn" data-method="qr">📱 QR</button>
             <button class="payment-btn" data-method="urikake">📝 売掛</button>
+          </div>
+          <div class="split-section hidden" id="split-section">
+            <p style="font-size:12px;color:var(--gold-light);margin-bottom:12px;font-weight:600;">現金で支払う金額を入力 → 残りがカード決済（8%手数料込み）</p>
+            <div class="custom-field">
+              <label>現金支払い額</label>
+              <div class="custom-price-input">
+                <span class="yen-prefix">¥</span>
+                <input type="number" id="split-cash-amount" placeholder="0" min="0" step="100">
+              </div>
+            </div>
+            <div class="split-summary" id="split-summary"></div>
           </div>
           <div class="cash-input" id="cash-input-section">
             <label>お預かり金額</label>
