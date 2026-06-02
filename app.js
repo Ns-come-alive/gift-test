@@ -155,11 +155,6 @@ function syncExtensionQtyToGuests() {
 
   if (cur30) { if (need30 > 0) cur30.qty = need30; else state.cart = state.cart.filter((l) => l.ukey !== cur30.ukey); }
   if (cur60) { if (need60 > 0) cur60.qty = need60; else state.cart = state.cart.filter((l) => l.ukey !== cur60.ukey); }
-
-  const setItem1 = state.cart.find((l) => l.id === 1);
-  const setItem2 = state.cart.find((l) => l.id === 2);
-  if (setItem1) setItem1.qty = qty;
-  if (setItem2) setItem2.qty = qty;
 }
 
 function getCartSubtotal() {
@@ -524,7 +519,7 @@ function renderMenu() {
         const idx = parseInt(el.dataset.obidx, 10);
         const b = bottles[idx];
         if (!b) return;
-        state.confirmItem = { id: 9900 + idx, name: b.name, price: b.price, category: "original", emoji: "🎂", isCustom: true };
+        state.confirmItem = { id: 9900 + idx, name: b.name, price: b.price, category: "original", emoji: "🎂", isCustom: true, isOrigBottle: true, origCastName: b.castName || "" };
         state.confirmQty = 1;
         document.getElementById("confirm-item-detail").innerHTML =
           `<span class="confirm-emoji">🎂</span><span class="confirm-name">${escapeHtml(b.name)}</span><span class="confirm-price">${fmt(b.price)}</span>`;
@@ -642,6 +637,20 @@ document.getElementById("btn-confirm-add").addEventListener("click", () => {
     state.pendingAddItem = item;
     state.pendingAddQty = qty;
     openRecipientModal();
+    return;
+  }
+  if (item.id === 8 && state.castsArr && state.castsArr.length > 0) {
+    state.castsArr.forEach((nm) => {
+      pushCartLine({
+        id: item.id,
+        name: `同伴（${nm}）`,
+        price: item.price,
+        category: item.category,
+        emoji: item.emoji,
+        qty: qty,
+      });
+    });
+    renderCart();
     return;
   }
   if (!tryMergeSimpleItem(item, qty)) pushCartLine({ ...item, qty });
@@ -1074,6 +1083,9 @@ function openOrigBottleModal() {
   renderOrigBottleList();
   document.getElementById("orig-bottle-name").value = "";
   document.getElementById("orig-bottle-price").value = "";
+  const castList = loadCastList();
+  const castSelect = document.getElementById("orig-bottle-cast");
+  castSelect.innerHTML = '<option value="">指定なし</option>' + castList.map(n => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join("");
   document.getElementById("modal-orig-bottle").classList.remove("hidden");
   lockScroll();
 }
@@ -1085,7 +1097,7 @@ function renderOrigBottleList() {
     return;
   }
   el.innerHTML = bottles.map((b, i) =>
-    `<div class="cast-list-item"><span class="cast-list-name">🎂 ${escapeHtml(b.name)} — ${fmt(b.price)}</span><button class="btn-cast-del" data-obdelidx="${i}">削除</button></div>`
+    `<div class="cast-list-item"><span class="cast-list-name">🎂 ${escapeHtml(b.name)} — ${fmt(b.price)}${b.castName ? ' / ' + escapeHtml(b.castName) : ''}</span><button class="btn-cast-del" data-obdelidx="${i}">削除</button></div>`
   ).join("");
   el.querySelectorAll("[data-obdelidx]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1108,8 +1120,9 @@ document.getElementById("btn-add-orig-bottle").addEventListener("click", () => {
   const name = document.getElementById("orig-bottle-name").value.trim();
   const price = parseInt(document.getElementById("orig-bottle-price").value, 10) || 0;
   if (!name || price <= 0) { alert("名前と金額を入力してください"); return; }
+  const castName = document.getElementById("orig-bottle-cast").value;
   const bottles = loadOriginalBottles();
-  bottles.push({ name, price });
+  bottles.push({ name, price, castName });
   saveOriginalBottles(bottles);
   document.getElementById("orig-bottle-name").value = "";
   document.getElementById("orig-bottle-price").value = "";
@@ -1870,6 +1883,7 @@ document.querySelectorAll(".summary-sub-tab").forEach((tab) => {
 // ============================
 let _expensesCache = {};
 let _dailyPayCache = {};
+let _transportCache = {};
 
 let reportDate = getBusinessDateObj();
 
@@ -1916,6 +1930,21 @@ function setDailyPayForDate(dateKey, data) {
   const all = loadDailyPay();
   all[dateKey] = data;
   saveDailyPay(all);
+}
+
+function loadTransport() { return _transportCache; }
+function saveTransport(obj) {
+  _transportCache = obj;
+  DB.saveTransport(obj);
+}
+function getTransportForDate(dateKey) {
+  const all = loadTransport();
+  return all[dateKey] || [];
+}
+function setTransportForDate(dateKey, arr) {
+  const all = loadTransport();
+  all[dateKey] = arr;
+  saveTransport(all);
 }
 
 document.getElementById("report-prev-day").addEventListener("click", () => {
@@ -1965,7 +1994,9 @@ function renderDailyReport() {
   const grandTotal = orders.reduce((s, o) => s + o.total, 0);
   const expenseTotal = expenses.reduce((s, e) => s + (e.amount || 0), 0);
   const dailyPayTotal = dailyPayEntries.reduce((s, e) => s + (e.amount || 0), 0);
-  const cashNet = cashTotal - expenseTotal - dailyPayTotal - tainyuSalary;
+  const transportEntries = getTransportForDate(dateKey);
+  const transportTotal = transportEntries.reduce((s, e) => s + (e.amount || 0), 0);
+  const cashNet = cashTotal - expenseTotal - dailyPayTotal - tainyuSalary - transportTotal;
 
   let custRows = "";
   for (let i = 0; i < 15; i++) {
@@ -2029,36 +2060,130 @@ function renderDailyReport() {
     </div>`;
   });
 
-  // Cast drink & shot aggregation
-  const castDrinkAgg = {};
-  const castShotAgg = {};
+  // ========== COMPREHENSIVE CAST SALES AGGREGATION ==========
+  const BOTTLE_BACK_EXCLUDES = new Set([42, 43, 44]);
+  const BOTTLE_BACK_SHOT_IDS = new Set([14, 16]);
+
+  function isBottleBackItem(item) {
+    if (item.category === "bottle" && !BOTTLE_BACK_EXCLUDES.has(item.id)) return true;
+    if (item.category === "champagne" || item.category === "original" || item.category === "wine") return true;
+    if (item.category === "shot" && BOTTLE_BACK_SHOT_IDS.has(item.id)) return true;
+    if (item.isOrigBottle) return true;
+    return false;
+  }
+
+  const castAgg = {};
+  const allCasts = new Set();
+  const bottleDetails = [];
+
+  function getOrderCasts(o) {
+    if (!o.cast) return [];
+    return o.cast.split("・").filter(Boolean);
+  }
+  function ensureCast(cn) {
+    allCasts.add(cn);
+    if (!castAgg[cn]) castAgg[cn] = { subtotal: 0, honshimei: 0, bannai: 0, drink: 0, shot: 0, catchCnt: 0, douhan: 0, bottleBack: 0 };
+  }
+
   orders.forEach((o) => {
+    const orderCasts = getOrderCasts(o);
+    const isFreeTable = orderCasts.length === 0;
+    const orderNum = "#" + o.id.toString().padStart(4, "0");
+
+    if (!isFreeTable) {
+      const castSubtotal = o.items.reduce((s, i) => s + (i.isGacha ? 0 : i.price * i.qty), 0);
+      orderCasts.forEach((cn) => { ensureCast(cn); castAgg[cn].subtotal += castSubtotal; });
+    }
+
+    const catches = o.catchNames || (o.catchName ? [o.catchName] : []);
+    catches.forEach((cn) => { ensureCast(cn); castAgg[cn].catchCnt += (o.guestCount || 1); });
+
     o.items.forEach((item) => {
       const name = String(item.name);
-      const shotCast = parseShotCountName(name);
-      if (shotCast) {
-        castShotAgg[shotCast] = (castShotAgg[shotCast] || 0) + item.qty;
+
+      const shimeiM = name.match(/^推し指名（(.+?)）$/);
+      if (shimeiM) { ensureCast(shimeiM[1]); castAgg[shimeiM[1]].honshimei += item.qty; return; }
+
+      const bannaiM = name.match(/^場内指名（(.+?)）$/);
+      if (bannaiM) { ensureCast(bannaiM[1]); castAgg[bannaiM[1]].bannai += item.qty; return; }
+
+      const drinkM = name.match(/^(キャストドリンク|キャストショット＋|キャストショット)（(.+?)）$/);
+      if (drinkM) {
+        const cn = drinkM[2];
+        ensureCast(cn);
+        if (drinkM[1] === "キャストドリンク") castAgg[cn].drink += item.qty;
+        else castAgg[cn].shot += item.qty;
         return;
       }
-      const drinkMatch = name.match(/^(?:キャストドリンク|キャストショット|キャストショット＋)（(.+?)）$/);
-      if (drinkMatch) {
-        const castName = drinkMatch[1];
-        const key = name.startsWith("キャストショット＋") ? "shotPlus" : name.startsWith("キャストショット") ? "shot" : "drink";
-        if (!castDrinkAgg[castName]) castDrinkAgg[castName] = { drink: 0, shot: 0, shotPlus: 0 };
-        castDrinkAgg[castName][key] += item.qty;
+
+      const douhanM = name.match(/^同伴（(.+?)）$/);
+      if (douhanM) { ensureCast(douhanM[1]); castAgg[douhanM[1]].douhan += item.qty; return; }
+
+      if (isBottleBackItem(item)) {
+        const amt = item.price * item.qty;
+        if (item.isOrigBottle && item.origCastName) {
+          const cn = item.origCastName;
+          ensureCast(cn);
+          const bbAmt = isFreeTable ? Math.floor(amt / 2) : amt;
+          castAgg[cn].bottleBack += bbAmt;
+          bottleDetails.push({ cast: cn, orderNum, itemName: item.name, amount: bbAmt, note: isFreeTable ? "フリー卓(半額)" : "" });
+        } else if (!isFreeTable) {
+          orderCasts.forEach((cn) => {
+            ensureCast(cn);
+            castAgg[cn].bottleBack += amt;
+            bottleDetails.push({ cast: cn, orderNum, itemName: item.name, amount: amt, note: "" });
+          });
+        }
       }
     });
   });
 
-  let castDrinkRows = "";
-  const cdNames = Object.keys(castDrinkAgg).sort();
-  if (cdNames.length === 0) {
-    castDrinkRows = `<tr><td colspan="4" style="color:var(--text-muted);font-size:11px;">なし</td></tr>`;
+  const dailyPayByCast = {};
+  dailyPayEntries.forEach((e) => { if (e.castName) { dailyPayByCast[e.castName] = (dailyPayByCast[e.castName] || 0) + (e.amount || 0); allCasts.add(e.castName); } });
+
+  const transportByCast = {};
+  transportEntries.forEach((e) => { if (e.castName) { transportByCast[e.castName] = (transportByCast[e.castName] || 0) + (e.amount || 0); allCasts.add(e.castName); } });
+
+  const castNames = [...allCasts].sort((a, b) => a.localeCompare(b, "ja"));
+  let castSummaryRows = "";
+  if (castNames.length === 0) {
+    castSummaryRows = '<tr><td colspan="11" style="color:var(--text-muted);font-size:11px;">なし</td></tr>';
   } else {
-    cdNames.forEach((n) => {
-      const d = castDrinkAgg[n];
-      castDrinkRows += `<tr><td class="name-cell">${escapeHtml(n)}</td><td class="num-cell">${d.drink}杯</td><td class="num-cell">${d.shot}杯</td><td class="num-cell">${d.shotPlus}杯</td></tr>`;
+    castNames.forEach((cn) => {
+      const d = castAgg[cn] || { subtotal: 0, honshimei: 0, bannai: 0, drink: 0, shot: 0, catchCnt: 0, douhan: 0, bottleBack: 0 };
+      const dp = dailyPayByCast[cn] || 0;
+      const tp = transportByCast[cn] || 0;
+      castSummaryRows += '<tr>' +
+        '<td class="name-cell">' + escapeHtml(cn) + '</td>' +
+        '<td class="amount-cell">' + fmt(d.subtotal) + '</td>' +
+        '<td class="num-cell">' + (d.honshimei || "") + '</td>' +
+        '<td class="num-cell">' + (d.bannai || "") + '</td>' +
+        '<td class="num-cell">' + (d.drink || "") + '</td>' +
+        '<td class="num-cell">' + (d.shot || "") + '</td>' +
+        '<td class="num-cell">' + (d.catchCnt || "") + '</td>' +
+        '<td class="num-cell">' + (d.douhan || "") + '</td>' +
+        '<td class="amount-cell">' + (d.bottleBack ? fmt(d.bottleBack) : "") + '</td>' +
+        '<td class="amount-cell">' + (dp ? fmt(dp) : "") + '</td>' +
+        '<td class="amount-cell">' + (tp ? fmt(tp) : "") + '</td>' +
+        '</tr>';
     });
+  }
+
+  let bottleDetailRows = "";
+  if (bottleDetails.length === 0) {
+    bottleDetailRows = '<tr><td colspan="5" style="color:var(--text-muted);font-size:11px;">なし</td></tr>';
+  } else {
+    bottleDetails.forEach((d) => {
+      bottleDetailRows += '<tr>' +
+        '<td class="name-cell">' + escapeHtml(d.cast) + '</td>' +
+        '<td class="name-cell">' + d.orderNum + '</td>' +
+        '<td class="name-cell">' + escapeHtml(d.itemName) + '</td>' +
+        '<td class="amount-cell">' + fmt(d.amount) + '</td>' +
+        '<td class="name-cell" style="font-size:10px;color:var(--gold-light);">' + d.note + '</td>' +
+        '</tr>';
+    });
+    const bbGrandTotal = bottleDetails.reduce((s, d) => s + d.amount, 0);
+    bottleDetailRows += '<tr class="row-total"><td colspan="3">合計</td><td class="amount-cell">' + fmt(bbGrandTotal) + '</td><td></td></tr>';
   }
 
   // Remarks: キャストショット＋（カウント）
@@ -2092,47 +2217,6 @@ function renderDailyReport() {
     });
   }
 
-  // Cast individual sales aggregation
-  const castIndiv = {};
-  orders.forEach((o) => {
-    o.items.forEach((item) => {
-      const name = String(item.name);
-      const bannaiMatch = name.match(/^場内指名（(.+?)）$/);
-      if (bannaiMatch) {
-        const cn = bannaiMatch[1];
-        if (!castIndiv[cn]) castIndiv[cn] = { bannai: 0, drink: 0, shot: 0, shotPlus: 0, bannaiAmt: 0, drinkAmt: 0, shotAmt: 0, shotPlusAmt: 0 };
-        castIndiv[cn].bannai += item.qty;
-        castIndiv[cn].bannaiAmt += item.price * item.qty;
-        return;
-      }
-      const drinkMatch = name.match(/^(キャストドリンク|キャストショット＋|キャストショット)（(.+?)）$/);
-      if (drinkMatch) {
-        const type = drinkMatch[1];
-        const cn = drinkMatch[2];
-        if (!castIndiv[cn]) castIndiv[cn] = { bannai: 0, drink: 0, shot: 0, shotPlus: 0, bannaiAmt: 0, drinkAmt: 0, shotAmt: 0, shotPlusAmt: 0 };
-        if (type === "キャストドリンク") { castIndiv[cn].drink += item.qty; castIndiv[cn].drinkAmt += item.price * item.qty; }
-        else if (type === "キャストショット＋") { castIndiv[cn].shotPlus += item.qty; castIndiv[cn].shotPlusAmt += item.price * item.qty; }
-        else if (type === "キャストショット") { castIndiv[cn].shot += item.qty; castIndiv[cn].shotAmt += item.price * item.qty; }
-      }
-    });
-  });
-  const castIndivNames = Object.keys(castIndiv).sort((a, b) => a.localeCompare(b, "ja"));
-  let castIndivRows = "";
-  if (castIndivNames.length === 0) {
-    castIndivRows = `<tr><td colspan="6" style="color:var(--text-muted);font-size:11px;">なし</td></tr>`;
-  } else {
-    castIndivNames.forEach((cn) => {
-      const d = castIndiv[cn];
-      const total = d.bannaiAmt + d.drinkAmt + d.shotAmt + d.shotPlusAmt;
-      castIndivRows += `<tr><td class="name-cell">${escapeHtml(cn)}</td><td class="num-cell">${d.bannai}</td><td class="num-cell">${d.drink}</td><td class="num-cell">${d.shot}</td><td class="num-cell">${d.shotPlus}</td><td class="amount-cell">${fmt(total)}</td></tr>`;
-    });
-    const grandIndivTotal = castIndivNames.reduce((s, cn) => {
-      const d = castIndiv[cn];
-      return s + d.bannaiAmt + d.drinkAmt + d.shotAmt + d.shotPlusAmt;
-    }, 0);
-    castIndivRows += `<tr class="row-total"><td>合計</td><td></td><td></td><td></td><td></td><td class="amount-cell">${fmt(grandIndivTotal)}</td></tr>`;
-  }
-
   const monthKey = `${reportDate.getFullYear()}-${pz(reportDate.getMonth() + 1)}`;
   const monthOrders = state.orders.filter((o) => getBusinessMonth(o.timestamp) === monthKey);
   const monthTotal = monthOrders.reduce((s, o) => s + o.total, 0);
@@ -2146,6 +2230,16 @@ function renderDailyReport() {
       <select class="daily-pay-cast-select" data-field="castName"><option value="">キャスト選択</option>${castOpts}</select>
       <input type="number" value="${entry.amount || ""}" data-field="amount" placeholder="金額" min="0">
       <button class="btn-expense-del" data-dpidx="${i}">×</button>
+    </div>`;
+  });
+
+  let transportRows = "";
+  transportEntries.forEach((entry, i) => {
+    const castOpts = castList.map((n) => `<option value="${escapeAttr(n)}" ${entry.castName === n ? "selected" : ""}>${escapeHtml(n)}</option>`).join("");
+    transportRows += `<div class="expense-input-row" data-tridx="${i}">
+      <select class="daily-pay-cast-select" data-field="castName"><option value="">キャスト選択</option>${castOpts}</select>
+      <input type="number" value="${entry.amount || ""}" data-field="amount" placeholder="金額" min="0">
+      <button class="btn-expense-del" data-tridx="${i}">×</button>
     </div>`;
   });
 
@@ -2166,24 +2260,25 @@ function renderDailyReport() {
 
         <div class="report-section">
           <h3>👑 キャスト別売上</h3>
-          <table class="report-table">
-            <thead><tr><th>キャスト名</th><th>場内指名</th><th>ドリンク</th><th>ショット</th><th>ショット＋</th><th>合計</th></tr></thead>
-            <tbody>${castIndivRows}</tbody>
+          <div style="overflow-x:auto;">
+          <table class="report-table" style="font-size:11px;">
+            <thead><tr><th>キャスト</th><th>小計売上</th><th>本指名</th><th>場内</th><th>ドリンク</th><th>ショット</th><th>キャッチ</th><th>同伴</th><th>ボトルバック</th><th>日払い</th><th>送迎</th></tr></thead>
+            <tbody>${castSummaryRows}</tbody>
+          </table>
+          </div>
+        </div>
+
+        <div class="report-section">
+          <h3>🍾 ボトルバック明細</h3>
+          <table class="report-table" style="font-size:11px;">
+            <thead><tr><th>キャスト</th><th>伝票</th><th>商品名</th><th>金額</th><th>備考</th></tr></thead>
+            <tbody>${bottleDetailRows}</tbody>
           </table>
         </div>
 
-        <div class="report-cast-grid">
-          <div class="report-section">
-            <h3>🍹 キャストドリンク/ショット</h3>
-            <table class="report-table">
-              <thead><tr><th>キャスト名</th><th>ドリンク</th><th>ショット</th><th>ショット＋</th></tr></thead>
-              <tbody>${castDrinkRows}</tbody>
-            </table>
-          </div>
-          <div class="report-section">
-            <h3>📝 備考</h3>
-            ${remarksHtml}
-          </div>
+        <div class="report-section">
+          <h3>📝 備考（ショット＋カウント）</h3>
+          ${remarksHtml}
         </div>
 
         <div class="report-section">
@@ -2248,6 +2343,17 @@ function renderDailyReport() {
         </div>
 
         <div class="report-section">
+          <h3>🚗 送迎</h3>
+          <div class="expense-list" id="transport-list">${transportRows}</div>
+          <div class="expense-input-row">
+            <select id="new-transport-cast"><option value="">キャスト選択</option>${castList.map((n) => `<option value="${escapeAttr(n)}">${escapeHtml(n)}</option>`).join("")}</select>
+            <input type="number" id="new-transport-amount" placeholder="金額" min="0">
+            <button class="btn-expense-add" id="btn-add-transport">＋</button>
+          </div>
+          <div class="expense-total-row"><span>送迎計</span><span>${fmt(transportTotal)}</span></div>
+        </div>
+
+        <div class="report-section">
           <h3>🏪 体入</h3>
           <div class="daily-pay-row">
             <label>名前</label>
@@ -2267,6 +2373,7 @@ function renderDailyReport() {
               <tr><td class="row-label">経費</td><td class="amount-cell">${fmt(expenseTotal)}</td></tr>
               <tr><td class="row-label">日払い</td><td class="amount-cell">${fmt(dailyPayTotal)}</td></tr>
               <tr><td class="row-label">体入給与</td><td class="amount-cell">${fmt(tainyuSalary)}</td></tr>
+              <tr><td class="row-label">送迎</td><td class="amount-cell">${fmt(transportTotal)}</td></tr>
               <tr class="row-total"><td>現金計</td><td class="amount-cell">${fmt(cashNet)}</td></tr>
             </tbody>
           </table>
@@ -2289,6 +2396,7 @@ function renderDailyReport() {
 
   bindExpenseEvents();
   bindDailyPayEvents();
+  bindTransportEvents();
 }
 
 function bindExpenseEvents() {
@@ -2374,6 +2482,42 @@ function bindDailyPayEvents() {
   document.getElementById("report-tainyu-salary")?.addEventListener("change", save);
 }
 
+function bindTransportEvents() {
+  const dateKey = reportDateKey();
+
+  document.getElementById("btn-add-transport")?.addEventListener("click", () => {
+    const castName = document.getElementById("new-transport-cast").value;
+    const amount = parseInt(document.getElementById("new-transport-amount").value, 10) || 0;
+    if (!castName && amount <= 0) return;
+    const entries = getTransportForDate(dateKey);
+    entries.push({ castName: castName || "", amount });
+    setTransportForDate(dateKey, entries);
+    renderDailyReport();
+  });
+
+  document.querySelectorAll("#transport-list .btn-expense-del").forEach((b) => {
+    b.addEventListener("click", () => {
+      const idx = parseInt(b.dataset.tridx, 10);
+      const entries = getTransportForDate(dateKey);
+      entries.splice(idx, 1);
+      setTransportForDate(dateKey, entries);
+      renderDailyReport();
+    });
+  });
+
+  document.querySelectorAll("#transport-list .expense-input-row select, #transport-list .expense-input-row input").forEach((el) => {
+    el.addEventListener("change", () => {
+      const entries = [];
+      document.querySelectorAll("#transport-list .expense-input-row").forEach((row) => {
+        const sel = row.querySelector("select");
+        const inp = row.querySelector("input[type=number]");
+        entries.push({ castName: sel?.value || "", amount: parseInt(inp?.value, 10) || 0 });
+      });
+      setTransportForDate(dateKey, entries);
+    });
+  });
+}
+
 // ============================
 // PDF Download
 // ============================
@@ -2419,7 +2563,7 @@ body { font-family: "Noto Sans JP", sans-serif; background: #fff; color: #000; p
 .expense-input-row input[type="text"], .expense-input-row select { flex: 1; }
 .expense-input-row input[type="number"] { width: 100px; text-align: right; }
 .btn-expense-del, .btn-expense-add { display: none !important; }
-.expense-input-row:not([data-eidx]):not([data-dpidx]) { display: none !important; }
+.expense-input-row:not([data-eidx]):not([data-dpidx]):not([data-tridx]) { display: none !important; }
 .daily-pay-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .daily-pay-row label { font-size: 12px; font-weight: 600; color: #333; min-width: 60px; }
 .daily-pay-row input { width: 120px; padding: 4px 6px; border: 1px solid #bbb; border-radius: 4px; background: #fff; color: #000; font-size: 12px; text-align: right; }
@@ -2436,6 +2580,41 @@ ${content.innerHTML}
 </body></html>`;
   printWin.document.write(html);
   printWin.document.close();
+});
+
+// ============================
+// Google Sheets Export
+// ============================
+const GAS_WEB_APP_URL = "";
+
+document.getElementById("btn-sheet-export").addEventListener("click", async () => {
+  if (!GAS_WEB_APP_URL) {
+    alert("スプレッドシート連携が未設定です。\n\ngas/Config.gs のセットアップ手順に従い、GAS Web AppのURLを設定してください。\n\n設定後、app.js の GAS_WEB_APP_URL にURLを貼り付けてください。");
+    return;
+  }
+  const btn = document.getElementById("btn-sheet-export");
+  const origText = btn.textContent;
+  btn.textContent = "📊 出力中...";
+  btn.disabled = true;
+  try {
+    const dateKey = reportDate.toDateString();
+    const resp = await fetch(GAS_WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ dateKey }),
+    });
+    const result = await resp.json();
+    if (result.success) {
+      alert("スプレッドシートへの出力が完了しました！");
+    } else {
+      alert("エラー: " + (result.error || "不明なエラー"));
+    }
+  } catch (e) {
+    alert("通信エラー: " + e.message);
+  } finally {
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
 });
 
 // ============================
@@ -2529,7 +2708,7 @@ document.getElementById("btn-save-checkin-time").addEventListener("click", () =>
 // ============================
 async function boot() {
   try {
-    const [orders, counter, castList, sessions, expenses, dailyPay, originalBottles] = await Promise.all([
+    const [orders, counter, castList, sessions, expenses, dailyPay, originalBottles, transport] = await Promise.all([
       DB.loadOrders(),
       DB.loadOrderCounter(),
       DB.loadCastList(),
@@ -2537,6 +2716,7 @@ async function boot() {
       DB.loadExpenses(),
       DB.loadDailyPay(),
       DB.loadOriginalBottles(),
+      DB.loadTransport(),
     ]);
     state.orders = orders;
     state.orderCounter = counter;
@@ -2544,6 +2724,7 @@ async function boot() {
     _sessionsCache = sessions;
     _expensesCache = expenses;
     _dailyPayCache = dailyPay;
+    _transportCache = transport;
     _originalBottlesCache = originalBottles;
   } catch (e) {
     console.warn("Firestore load failed, starting with empty state:", e);

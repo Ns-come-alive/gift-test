@@ -114,6 +114,7 @@
               <button class="report-date-btn" id="report-next-day">▶</button>
             </div>
             <button class="btn-pdf-download" id="btn-pdf-download">📥 PDF出力</button>
+            <button class="btn-pdf-download" id="btn-sheet-export" style="background:linear-gradient(135deg,#0f9d58,#34a853);">📊 シート出力</button>
           </div>
           <div id="daily-report-content"></div>
         </div>
@@ -342,6 +343,10 @@
               <span class="yen-prefix">¥</span>
               <input type="number" id="orig-bottle-price" placeholder="0" min="0" step="1000">
             </div>
+          </div>
+          <div class="custom-field">
+            <label>対象キャスト</label>
+            <select id="orig-bottle-cast" style="width:100%;padding:12px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:16px;font-family:inherit;"></select>
           </div>
           <button class="btn-add-custom" id="btn-add-orig-bottle">登録</button>
         </div>

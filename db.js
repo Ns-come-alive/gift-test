@@ -84,6 +84,16 @@ const DB = {
     await db.collection("meta").doc("dailyPay").set(obj);
   },
 
+  // --- 送迎 ---
+  async loadTransport() {
+    const doc = await db.collection("meta").doc("transport").get();
+    return doc.exists ? doc.data() : {};
+  },
+
+  async saveTransport(obj) {
+    await db.collection("meta").doc("transport").set(obj);
+  },
+
   // --- オリジナルシャンパン ---
   async loadOriginalBottles() {
     const doc = await db.collection("meta").doc("originalBottles").get();
@@ -98,6 +108,16 @@ const DB = {
     return db.collection("meta").doc("originalBottles").onSnapshot((doc) => {
       callback(doc.exists ? doc.data().list : []);
     });
+  },
+
+  // --- 送迎 ---
+  async loadTransport() {
+    const doc = await db.collection("meta").doc("transport").get();
+    return doc.exists ? doc.data() : {};
+  },
+
+  async saveTransport(obj) {
+    await db.collection("meta").doc("transport").set(obj);
   },
 
   // --- リアルタイムリスナー ---
